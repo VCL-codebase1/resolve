@@ -49,6 +49,14 @@ Change `SEED_PASSWORD` before this app is reachable by anyone outside the machin
 | Chioma Eze | chioma@vethancon.com | Lead | Exhibition | Exhibition queue |
 | Zainab Mohammed | zainab@vethancon.com | Lead | Creative Marketing / Customer Service | That department’s queue |
 | Segun Okafor | segun@vethancon.com | Lead | Logistic / Warehouse | That department’s queue |
+| Kemi Adebayo | kemi@vethancon.com | Member | IT / Software | Her own tickets and the IT queue |
+| Bola Akin | bola@vethancon.com | Member | Business Operations | That department |
+| Aisha Bello | aisha@vethancon.com | Member | HR / Admin | That department |
+| Yusuf Danjuma | yusuf@vethancon.com | Member | Account / Finance | That department |
+| Seyi Ogun | seyi@vethancon.com | Member | Business Development | That department |
+| Nneka Umeh | nneka@vethancon.com | Member | Exhibition | That department |
+| Femi Cole | femi@vethancon.com | Member | Creative Marketing / Customer Service | That department |
+| Hassan Musa | hassan@vethancon.com | Member | Logistic / Warehouse | That department |
 
 Leads and Amaka are also the people copied on their department’s email receipts.
 

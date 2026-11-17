@@ -32,7 +32,8 @@ The email template is [email/ticket.html](email/ticket.html) with the plain-text
 - Email sends receipts and shows them on the ticket. People reply in the app. Reply-by-email is specified and switched off.
 - Admins have a monitor: Raised, Pending, Resolved, Closed, and each department. Every section carries a count badge. An admin can write to a department that still has unresolved tickets. That note is an alert and an email. It does not open a new ticket.
 
-## Still off
 
-- A mailbox, until `SMTP_HOST` is set
+## Extra Configs
+
+- To turn on mailbox, make sure  `SMTP_HOST` is set
 - Reply-by-email (`POST /api/v1/inbound/email`)

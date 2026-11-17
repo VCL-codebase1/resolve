@@ -103,7 +103,7 @@ export function Composer() {
   );
 }
 
-export function LoginForm() {
+export function LoginForm({ admin = false }: { admin?: boolean }) {
   const router = useRouter();
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
@@ -114,11 +114,17 @@ export function LoginForm() {
     setPending(true);
     setError("");
     try {
-      await api<Me>("/auth/login", {
+      const person = await api<Me>("/auth/login", {
         method: "POST",
         body: JSON.stringify({ email: form.get("email"), password: form.get("password") }),
       });
-      router.replace("/inbox");
+      const wrongDoor = admin ? person.role !== "admin" : person.role === "admin";
+      if (wrongDoor) {
+        await api("/auth/logout", { method: "POST" });
+        setError(admin ? "This page is for admins. Staff use the main sign-in." : "Admins sign in at the admin page.");
+        return;
+      }
+      router.replace(admin ? "/monitor" : "/inbox");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Email or password is wrong.");
     } finally {
@@ -132,8 +138,10 @@ export function LoginForm() {
         <Link href="/" className="text-[14px] text-action">
           Desk
         </Link>
-        <h1 className="mt-6 text-[28px] font-semibold tracking-tight">Sign in</h1>
-        <p className="mt-2 text-[16px] leading-6 text-ink-soft">Use the work email an admin gave you.</p>
+        <h1 className="mt-6 text-[28px] font-semibold tracking-tight">{admin ? "Admin sign in" : "Sign in"}</h1>
+        <p className="mt-2 text-[16px] leading-6 text-ink-soft">
+          {admin ? "Monitor, directory, and passwords." : "Use the work email an admin gave you."}
+        </p>
         <label className="mt-8 flex flex-col gap-1 text-[14px] font-medium">
           Email
           <input name="email" type="email" autoComplete="username" required className="h-11 rounded-[10px] border border-line bg-white px-3 font-normal" />

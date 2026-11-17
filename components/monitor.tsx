@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { api, badgeText, type Person } from "./api";
+import { api, badgeText, type Department, type Person } from "./api";
 import { WorkList } from "./lists";
 import { useDesk } from "./provider";
 
@@ -144,22 +144,49 @@ export function Monitor() {
 }
 
 export function Directory() {
-  const { me, departments } = useDesk();
+  const { me, departments, refresh } = useDesk();
   const router = useRouter();
   const [people, setPeople] = useState<Person[]>([]);
+  const [catalog, setCatalog] = useState(departments);
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const [resetFor, setResetFor] = useState<string | null>(null);
+
+  useEffect(() => {
+    setCatalog(departments);
+  }, [departments]);
+
+  async function loadPeople() {
+    const body = await api<{ items: Person[] }>("/people?limit=200");
+    setPeople(body.items);
+  }
 
   useEffect(() => {
     if (me && me.role !== "admin") return;
-    api<{ items: Person[] }>("/people")
-      .then((body) => setPeople(body.items))
-      .catch((reason: Error) => setError(reason.message));
+    loadPeople().catch((reason: Error) => setError(reason.message));
   }, [me]);
 
   if (me && me.role !== "admin") return <p className="px-4 py-8 min-[880px]:px-8">The directory is for admins.</p>;
 
-  async function onSubmit(event: FormEvent<HTMLFormElement>) {
+  async function addDepartment(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setPending(true);
+    setError("");
+    try {
+      await api("/departments", { method: "POST", body: JSON.stringify({ name: form.get("name") }) });
+      const body = await api<{ items: Department[] }>("/departments");
+      setCatalog(body.items);
+      refresh();
+      event.currentTarget.reset();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "That department was not added.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function addPerson(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     setPending(true);
@@ -173,16 +200,43 @@ export function Directory() {
           password: form.get("password"),
           role: form.get("role"),
           departmentSlug: form.get("departmentSlug"),
-          queueRecipient: form.get("queueRecipient") === "on",
+          queueRecipient: form.get("role") === "lead" || form.get("queueRecipient") === "on",
         }),
       });
-      const body = await api<{ items: Person[] }>("/people");
-      setPeople(body.items);
+      await loadPeople();
       event.currentTarget.reset();
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "That person was not added.");
     } finally {
       setPending(false);
+    }
+  }
+
+  async function makeHead(person: Person) {
+    setError("");
+    try {
+      await api(`/people/${person.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ role: "lead", queueRecipient: true }),
+      });
+      await loadPeople();
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "That person was not made head.");
+    }
+  }
+
+  async function resetPassword(event: FormEvent<HTMLFormElement>, person: Person) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setError("");
+    try {
+      await api(`/people/${person.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ password: form.get("password") }),
+      });
+      setResetFor(null);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The password was not changed.");
     }
   }
 
@@ -193,33 +247,68 @@ export function Directory() {
           Monitor
         </button>
         <h1 className="mt-2 text-[22px] font-semibold">Directory</h1>
-        <p className="mt-1 text-[15px] text-ink-soft">Everyone who can sign in. Add a person here. There is no public sign-up.</p>
+        <p className="mt-1 text-[15px] text-ink-soft">Departments, heads, and staff. There is no public sign-up.</p>
       </header>
-      <ul>
-        {people.map((person) => (
-          <li key={person.id} className="flex items-baseline justify-between gap-4 border-b border-line px-4 py-3 min-[880px]:px-8">
-            <span className="text-[15px]">
-              {person.name}
-              {!person.active ? " · Disabled" : ""}
-            </span>
-            <span className="text-right text-[13px] text-muted">
-              {person.role} · {departments.find((item) => item.slug === person.departmentSlug)?.name}
-            </span>
-          </li>
-        ))}
-      </ul>
-      <form onSubmit={onSubmit} className="grid max-w-md gap-3 px-4 py-6 min-[880px]:px-8">
+      {catalog.map((department) => {
+        const staff = people.filter((person) => person.departmentSlug === department.slug);
+        return (
+          <section key={department.slug} className="border-b border-line px-4 py-4 min-[880px]:px-8">
+            <h2 className="text-[16px] font-semibold">{department.name}</h2>
+            <ul className="mt-2">
+              {staff.map((person) => (
+                <li key={person.id} className="border-t border-line py-3">
+                  <div className="flex flex-wrap items-baseline justify-between gap-3">
+                    <span className="text-[15px]">
+                      {person.name}
+                      {person.email ? ` · ${person.email}` : ""}
+                      {!person.active ? " · Disabled" : ""}
+                    </span>
+                    <span className="text-[13px] text-muted">{person.role === "lead" ? "Head" : person.role}</span>
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-3">
+                    {person.role !== "lead" ? (
+                      <button type="button" className="text-[14px] text-action" onClick={() => makeHead(person)}>
+                        Make department head
+                      </button>
+                    ) : null}
+                    <button type="button" className="text-[14px] text-action" onClick={() => setResetFor(resetFor === person.id ? null : person.id)}>
+                      Set a new password
+                    </button>
+                  </div>
+                  {resetFor === person.id ? (
+                    <form onSubmit={(event) => resetPassword(event, person)} className="mt-2 flex flex-wrap gap-2">
+                      <input name="password" required minLength={10} type="text" placeholder="New password, at least 10 characters" className="h-11 min-w-64 flex-1 rounded-[10px] border border-line px-3" />
+                      <button type="submit" className="h-11 rounded-[10px] bg-action px-4 text-[14px] font-semibold text-white">
+                        Save password
+                      </button>
+                    </form>
+                  ) : null}
+                </li>
+              ))}
+              {staff.length === 0 ? <li className="text-[14px] text-muted">No one in this department yet.</li> : null}
+            </ul>
+          </section>
+        );
+      })}
+      <form onSubmit={addDepartment} className="grid max-w-md gap-3 px-4 py-6 min-[880px]:px-8">
+        <h2 className="text-[18px] font-semibold">New department</h2>
+        <input name="name" required placeholder="Department name" className="h-11 rounded-[10px] border border-line px-3" />
+        <button type="submit" disabled={pending} className="h-11 rounded-[10px] bg-action text-[14px] font-semibold text-white disabled:opacity-40">
+          Add department
+        </button>
+      </form>
+      <form onSubmit={addPerson} className="grid max-w-md gap-3 px-4 pb-8 min-[880px]:px-8">
         <h2 className="text-[18px] font-semibold">Add a person</h2>
         <input name="name" required placeholder="Name" className="h-11 rounded-[10px] border border-line px-3" />
         <input name="email" type="email" required placeholder="Work email" className="h-11 rounded-[10px] border border-line px-3" />
         <input name="password" required minLength={10} placeholder="Password, at least 10 characters" className="h-11 rounded-[10px] border border-line px-3" />
         <select name="role" className="h-11 rounded-[10px] border border-line px-3" defaultValue="member">
           <option value="member">Member</option>
-          <option value="lead">Lead</option>
+          <option value="lead">Department head</option>
           <option value="admin">Admin</option>
         </select>
-        <select name="departmentSlug" className="h-11 rounded-[10px] border border-line px-3" defaultValue={departments[0]?.slug}>
-          {departments.map((department) => (
+        <select name="departmentSlug" className="h-11 rounded-[10px] border border-line px-3" defaultValue={catalog[0]?.slug}>
+          {catalog.map((department) => (
             <option key={department.slug} value={department.slug}>
               {department.name}
             </option>
@@ -231,7 +320,7 @@ export function Directory() {
         </label>
         {error ? <p className="text-[14px] text-danger">{error}</p> : null}
         <button type="submit" disabled={pending} className="h-11 rounded-[10px] bg-action text-[14px] font-semibold text-white disabled:opacity-40">
-          {pending ? "Adding…" : "Add person"}
+          {pending ? "Saving…" : "Add person"}
         </button>
       </form>
     </section>

@@ -1,5 +1,4 @@
 import { createHmac, randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -16,22 +15,31 @@ import {
   type User,
 } from "./auth";
 import { q, tx } from "./db";
-import {
-  DEPARTMENT_NAMES,
-  DEPARTMENT_SLUGS,
-  STATUS_LABEL,
-  isPriority,
-  isRole,
-  isSlug,
-  isStatus,
-  type DepartmentSlug,
-  type Priority,
-  type Status,
-} from "./labels";
+import { STATUS_LABEL, isPriority, isRole, isStatus, type DepartmentSlug, type Priority, type Status } from "./labels";
+import { readStoredFile, storeFile } from "./files";
 import { deliver, type MailInput } from "./mail";
 import { publish } from "./realtime";
 
 const uploads = join(dirname(fileURLToPath(import.meta.url)), "..", "data", "uploads");
+
+async function departmentName(slug: string) {
+  const rows = await q<{ name: string }>(`SELECT name FROM departments WHERE slug = $1`, [slug]);
+  return rows[0]?.name ?? null;
+}
+
+async function requireDepartment(slug: string) {
+  const name = await departmentName(slug);
+  if (!name) throw new HttpError(422, "validation", "Choose a department.", { departmentslug: "Choose a department." });
+  return name;
+}
+
+function slugify(name: string) {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+}
 
 class HttpError extends Error {
   constructor(
@@ -413,8 +421,8 @@ async function mailTicket(row: Record<string, unknown>, actor: User, event: Mail
   const watcherRows = await q<{ user_id: string }>(`SELECT user_id FROM watchers WHERE ticket_id = $1`, [row.id]);
   const queueIds = await queueRecipientIds(String(row.target_department));
   const ccIds = [...watcherRows.map((item) => String(item.user_id)), ...queueIds].filter((id) => id !== actor.id && !toIds.includes(id));
-  const target = DEPARTMENT_NAMES[row.target_department as DepartmentSlug];
-  const source = DEPARTMENT_NAMES[row.source_department as DepartmentSlug];
+  const target = (await departmentName(String(row.target_department))) || String(row.target_department);
+  const source = (await departmentName(String(row.source_department))) || String(row.source_department);
   await sendMail({
     event,
     subject,
@@ -422,7 +430,7 @@ async function mailTicket(row: Record<string, unknown>, actor: User, event: Mail
     eventLabel,
     meta: `${source} → ${target} · ${STATUS_LABEL[row.status as Status]}`,
     actorName: actor.name,
-    actorDepartment: DEPARTMENT_NAMES[actor.departmentSlug],
+    actorDepartment: (await departmentName(actor.departmentSlug)) || actor.departmentSlug,
     note,
     ticketUrl: `${origin()}/tickets/${row.id}`,
     ticketId: String(row.id),
@@ -495,7 +503,7 @@ async function listTickets(user: User, url: URL, forced?: { bucket?: string; adm
 
   const department = url.searchParams.get("department");
   if (department) {
-    if (!isSlug(department)) throw new HttpError(422, "validation", "That department is not valid.");
+    if (!(await departmentName(department))) throw new HttpError(422, "validation", "That department is not valid.");
     if (user.role !== "admin" && department !== user.departmentSlug) {
       const watches = await watchesOf(user.id);
       if (!watches.includes(department)) throw new HttpError(403, "forbidden", "You cannot filter to that department.");
@@ -566,7 +574,7 @@ async function departmentPayload(slug: string, includeEmail: boolean) {
   );
   return {
     slug,
-    name: DEPARTMENT_NAMES[slug as DepartmentSlug],
+    name: (await departmentName(slug)) || slug,
     recipients: rows.map((row) =>
       person(
         {
@@ -644,21 +652,36 @@ export async function handle(method: string, path: string[], request: Request): 
 
     if (key === "GET departments") {
       const user = await requireUser(request);
+      const rows = await q<{ slug: string }>(`SELECT slug FROM departments ORDER BY position, slug`);
       const items = [];
-      for (const slug of DEPARTMENT_SLUGS) items.push(await departmentPayload(slug, user.role === "admin"));
+      for (const row of rows) items.push(await departmentPayload(row.slug, user.role === "admin"));
       return json({ items });
+    }
+
+    if (key === "POST departments") {
+      const user = await requireUser(request);
+      requireAdmin(user);
+      const body = await readJson(request);
+      const name = textField(body.name, "Name", 1, 80);
+      const slug = slugify(name);
+      if (!slug) throw new HttpError(422, "validation", "Use letters or numbers in the name.");
+      const taken = await q(`SELECT 1 FROM departments WHERE slug = $1`, [slug]);
+      if (taken.length) return json({ error: { code: "conflict", message: "A department with that name already exists." } }, 409);
+      const position = await q<{ n: number }>(`SELECT coalesce(max(position), 0)::int + 1 AS n FROM departments`);
+      await q(`INSERT INTO departments (slug, name, position) VALUES ($1, $2, $3)`, [slug, name, Number(position[0]?.n || 1)]);
+      return json(await departmentPayload(slug, true), 201);
     }
 
     if (method === "GET" && path[0] === "departments" && path.length === 2) {
       const user = await requireUser(request);
-      if (!isSlug(path[1])) throw new HttpError(404, "not_found", "That department does not exist.");
+      if (!(await departmentName(path[1]))) throw new HttpError(404, "not_found", "That department does not exist.");
       return json(await departmentPayload(path[1], user.role === "admin"));
     }
 
     if (key === "GET people") {
       const user = await requireUser(request);
       const department = url.searchParams.get("department");
-      if (department && !isSlug(department)) throw new HttpError(422, "validation", "That department is not valid.");
+      if (department && !(await departmentName(department))) throw new HttpError(422, "validation", "That department is not valid.");
       const limit = pageLimit(url, 200, 100);
       const rows = department
         ? await q(`SELECT id, email, name, role, department_slug, active FROM users WHERE department_slug = $1 ORDER BY name LIMIT $2`, [department, limit])
@@ -688,7 +711,7 @@ export async function handle(method: string, path: string[], request: Request): 
       const email = emailField(body.email);
       const password = textField(body.password, "Password", 10, 200);
       if (!isRole(String(body.role))) throw new HttpError(422, "validation", "Choose a role.", { role: "Choose a role." });
-      if (!isSlug(String(body.departmentSlug))) throw new HttpError(422, "validation", "Choose a department.", { departmentslug: "Choose a department." });
+      await requireDepartment(String(body.departmentSlug));
       const taken = await q(`SELECT 1 FROM users WHERE lower(email) = lower($1)`, [email]);
       if (taken.length) return json({ error: { code: "conflict", message: "That email is already in use." } }, 409);
       const id = randomUUID();
@@ -701,7 +724,7 @@ export async function handle(method: string, path: string[], request: Request): 
       }
       if (Array.isArray(body.watches)) {
         for (const slug of body.watches) {
-          if (!isSlug(String(slug))) throw new HttpError(422, "validation", "One of those departments is not valid.");
+          if (!(await departmentName(String(slug)))) throw new HttpError(422, "validation", "One of those departments is not valid.");
           await q(`INSERT INTO department_watches (user_id, department_slug) VALUES ($1, $2)`, [id, slug]);
         }
       }
@@ -721,7 +744,7 @@ export async function handle(method: string, path: string[], request: Request): 
       const department = body.departmentSlug === undefined ? current.departmentSlug : body.departmentSlug;
       const active = body.active === undefined ? current.active : Boolean(body.active);
       if (!isRole(String(role))) throw new HttpError(422, "validation", "Choose a role.", { role: "Choose a role." });
-      if (!isSlug(String(department))) throw new HttpError(422, "validation", "Choose a department.");
+      await requireDepartment(String(department));
       const taken = await q(`SELECT id FROM users WHERE lower(email) = lower($1) AND id <> $2`, [email, current.id]);
       if (taken.length) return json({ error: { code: "conflict", message: "That email is already in use." } }, 409);
       if (body.password !== undefined) {
@@ -752,7 +775,7 @@ export async function handle(method: string, path: string[], request: Request): 
       if (Array.isArray(body.watches)) {
         await q(`DELETE FROM department_watches WHERE user_id = $1`, [current.id]);
         for (const slug of body.watches) {
-          if (!isSlug(String(slug))) throw new HttpError(422, "validation", "One of those departments is not valid.");
+          if (!(await departmentName(String(slug)))) throw new HttpError(422, "validation", "One of those departments is not valid.");
           await q(`INSERT INTO department_watches (user_id, department_slug) VALUES ($1, $2)`, [current.id, slug]);
         }
       }
@@ -766,9 +789,7 @@ export async function handle(method: string, path: string[], request: Request): 
       const body = await readJson(request);
       const title = textField(body.title, "Title", 1, 120);
       const note = textField(body.body, "Note", 1, 8000);
-      if (!isSlug(String(body.targetDepartment))) {
-        throw new HttpError(422, "validation", "Choose a department.", { targetdepartment: "Choose a department." });
-      }
+      const targetName = await requireDepartment(String(body.targetDepartment));
       const priority = body.priority === undefined ? "normal" : body.priority;
       if (!isPriority(String(priority))) throw new HttpError(422, "validation", "Choose a priority.", { priority: "Choose a priority." });
       const messageId = randomUUID();
@@ -785,7 +806,8 @@ export async function handle(method: string, path: string[], request: Request): 
       });
       const row = await ticketRow(ticketId);
       if (!row) throw new HttpError(500, "error", "The ticket was not saved.");
-      const sentence = `${user.name} in ${DEPARTMENT_NAMES[user.departmentSlug]} raised ${ticketId} to ${DEPARTMENT_NAMES[body.targetDepartment as DepartmentSlug]}.`;
+      const sourceName = (await departmentName(user.departmentSlug)) || user.departmentSlug;
+      const sentence = `${user.name} in ${sourceName} raised ${ticketId} to ${targetName}.`;
       await notify({
         recipients: await recipientIds(row, user.id),
         readers: await readerIds(row),
@@ -804,7 +826,7 @@ export async function handle(method: string, path: string[], request: Request): 
           title,
         },
       });
-      await mailTicket(row, user, "ticket.raised", note, `${ticketId} ${title}`, `Raised to ${DEPARTMENT_NAMES[body.targetDepartment as DepartmentSlug]}`);
+      await mailTicket(row, user, "ticket.raised", note, `${ticketId} ${title}`, `Raised to ${targetName}`);
       return json(await detail(row, user.role === "admin"), 201);
     }
 
@@ -994,12 +1016,17 @@ export async function handle(method: string, path: string[], request: Request): 
       const mediaType = sniff(bytes);
       if (!mediaType) return json({ error: { code: "unsupported", message: "Use a PNG, JPEG, WEBP, or PDF." } }, 415);
       const id = randomUUID();
-      await mkdir(uploads, { recursive: true });
-      await writeFile(join(uploads, id), bytes);
       const name = file.name.replace(/[/\\]/g, "").slice(0, 180) || "file";
+      let storageKey: string = id;
+      try {
+        storageKey = await storeFile(id, bytes, mediaType, name, uploads);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "The file was not stored.";
+        throw new HttpError(502, "error", message);
+      }
       await q(
         `INSERT INTO attachments (id, message_id, name, media_type, size, storage_key) VALUES ($1, $2, $3, $4, $5, $6)`,
-        [id, messageId, name, mediaType, bytes.length, id],
+        [id, messageId, name, mediaType, bytes.length, storageKey],
       );
       return json({ id, messageId, name, mediaType, size: bytes.length }, 201);
     }
@@ -1015,10 +1042,10 @@ export async function handle(method: string, path: string[], request: Request): 
       if (!file) throw new HttpError(404, "not_found", "That file does not exist.");
       const row = await ticketRow(String(file.ticket_id));
       if (!row || !(await canRead(user, row))) throw new HttpError(404, "not_found", "That file does not exist.");
-      const bytes = await readFile(join(uploads, String(file.storage_key))).catch(() => null);
-      if (!bytes) throw new HttpError(404, "not_found", "That file does not exist.");
+      const stored = await readStoredFile(String(file.storage_key), uploads);
+      if (!stored) throw new HttpError(404, "not_found", "That file does not exist.");
       const disposition = String(file.media_type).startsWith("image/") ? "inline" : "attachment";
-      return new Response(bytes, {
+      return new Response(new Uint8Array(stored.bytes), {
         headers: {
           "Content-Type": String(file.media_type),
           "Content-Disposition": `${disposition}; filename="${String(file.name).replace(/"/g, "")}"`,
@@ -1093,13 +1120,14 @@ export async function handle(method: string, path: string[], request: Request): 
       const grouped = await q<{ target_department: string; status: Status; n: number }>(
         `SELECT target_department, status, count(*)::int AS n FROM tickets GROUP BY target_department, status`,
       );
-      const departments = DEPARTMENT_SLUGS.map((slug) => {
-        const n = (status: Status) => Number(grouped.find((row) => row.target_department === slug && row.status === status)?.n ?? 0);
+      const listed = await q<{ slug: string; name: string }>(`SELECT slug, name FROM departments ORDER BY position, slug`);
+      const departments = listed.map((item) => {
+        const n = (status: Status) => Number(grouped.find((row) => row.target_department === item.slug && row.status === status)?.n ?? 0);
         const raised = n("open");
         const pending = n("in_progress") + n("waiting");
         return {
-          slug,
-          name: DEPARTMENT_NAMES[slug],
+          slug: item.slug,
+          name: item.name,
           raised,
           pending,
           resolved: n("resolved"),
@@ -1124,7 +1152,7 @@ export async function handle(method: string, path: string[], request: Request): 
       const params: unknown[] = [];
       const department = url.searchParams.get("department");
       if (department) {
-        if (!isSlug(department)) throw new HttpError(422, "validation", "That department is not valid.");
+        if (!(await departmentName(department))) throw new HttpError(422, "validation", "That department is not valid.");
         params.push(department);
         where.push(`o.department_slug = $${params.length}`);
       }
@@ -1156,9 +1184,9 @@ export async function handle(method: string, path: string[], request: Request): 
       const user = await requireUser(request);
       requireAdmin(user);
       const body = await readJson(request);
-      if (!isSlug(String(body.departmentSlug))) throw new HttpError(422, "validation", "Choose a department.", { departmentslug: "Choose a department." });
+      const slug = String(body.departmentSlug);
+      const departmentLabel = await requireDepartment(slug);
       const note = textField(body.note, "Note", 1, 2000);
-      const slug = body.departmentSlug as DepartmentSlug;
       const openRows = await q<{ id: string }>(
         `SELECT id FROM tickets WHERE target_department = $1 AND status IN ('open','in_progress','waiting') ORDER BY updated_at DESC`,
         [slug],
@@ -1174,7 +1202,7 @@ export async function handle(method: string, path: string[], request: Request): 
         [id, user.id, slug, note, ticketIds.length, ticketIds],
       );
       const recipients = (await queueRecipientIds(slug)).filter((item) => item !== user.id);
-      const sentence = `${user.name} asked ${DEPARTMENT_NAMES[slug]} about ${ticketIds.length} unresolved tickets.`;
+      const sentence = `${user.name} asked ${departmentLabel} about ${ticketIds.length} unresolved tickets.`;
       await notify({
         recipients,
         readers: [],
@@ -1188,15 +1216,15 @@ export async function handle(method: string, path: string[], request: Request): 
       });
       const receiptId = await sendMail({
         event: "department.outreach",
-        subject: `${DEPARTMENT_NAMES[slug]} · ${ticketIds.length} unresolved`,
+        subject: `${departmentLabel} · ${ticketIds.length} unresolved`,
         title: "Unresolved tickets",
         eventLabel: "From Desk",
-        meta: `${DEPARTMENT_NAMES[slug]} · ${ticketIds.length} unresolved`,
+        meta: `${departmentLabel} · ${ticketIds.length} unresolved`,
         actorName: user.name,
-        actorDepartment: DEPARTMENT_NAMES[user.departmentSlug],
+        actorDepartment: (await departmentName(user.departmentSlug)) || user.departmentSlug,
         note,
         ticketUrl: `${origin()}/queue`,
-        departmentName: DEPARTMENT_NAMES[slug],
+        departmentName: departmentLabel,
         unresolvedCount: String(ticketIds.length),
         toIds: [],
         ccIds: recipients,

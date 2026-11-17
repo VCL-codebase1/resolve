@@ -141,6 +141,27 @@ pg_dump "$DATABASE_URL" --format=custom --file=desk.dump
 
 Restore onto an empty database with `pg_restore --no-owner --dbname=desk desk.dump`. Take a dump before each deploy that might change `schema.sql`. The app does not run versioned migrations. If `departments` already exists, a changed `schema.sql` is not applied. Alter an existing database yourself, then restart.
 
+## Neon, for a hosted test database
+
+Neon is Postgres. Desk uses it the same way as a database on this machine: set `DATABASE_URL` and start the app. An empty Neon database gets `schema.sql`, the nine departments, and the staff in [deployment.md](deployment.md) on first start. Every account uses `SEED_PASSWORD`, or `Desk-staff-1` if that variable is unset.
+
+1. Create a project at [neon.tech](https://neon.tech) and copy the connection string. It looks like `postgres://user:password@ep-xxxx.region.aws.neon.tech/neondb?sslmode=require`.
+2. From the project folder, point the app at it and start:
+
+```bash
+export DATABASE_URL='postgres://…?sslmode=require'
+export APP_ORIGIN='http://localhost:3000'
+export SEED_PASSWORD='choose-a-staff-password'
+export NODE_ENV=production
+npm run build
+npm start
+```
+
+3. Open `http://localhost:3000/login` and sign in as `admin@vethancon.com` with `SEED_PASSWORD`.
+4. In Neon’s SQL editor, `SELECT email, role, department_slug FROM users ORDER BY department_slug;` should list the seeded staff.
+
+Do not commit the connection string. The embedded file in `data/pglite` is not used while `DATABASE_URL` is set. Seed rows are inserted only when `departments` is empty, so a second start does not duplicate them.
+
 ## What not to do
 
 - Do not point a VPS at `data/pglite`. That file is a single-process embedded database.

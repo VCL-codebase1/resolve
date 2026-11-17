@@ -18,15 +18,20 @@ export function Landing() {
     api<Me>("/me").then(setMe).catch(() => setMe(null));
   }, []);
 
-  const enter = me ? "/inbox" : "/login";
+  const enter = me ? (me.role === "admin" ? "/monitor" : "/inbox") : "/login";
 
   return (
     <div className="stage min-h-dvh text-ink">
       <header className="glass fixed inset-x-4 top-4 z-20 mx-auto flex h-14 max-w-6xl items-center justify-between rounded-[18px] px-4 min-[840px]:inset-x-6">
         <span className="text-[16px] font-semibold tracking-tight">Desk</span>
-        <Link href={enter} className="inline-flex h-10 items-center bg-action px-4 text-[14px] font-semibold text-white">
-          {me ? "Open desk" : "Sign in"}
-        </Link>
+        <div className="flex items-center gap-4">
+          <Link href="/admin" className="text-[14px] text-action">
+            Admin
+          </Link>
+          <Link href={enter} className="inline-flex h-10 items-center bg-action px-4 text-[14px] font-semibold text-white">
+            {me ? "Open desk" : "Sign in"}
+          </Link>
+        </div>
       </header>
 
       <section className="flex min-h-dvh items-center px-5 pb-16 pt-28 min-[840px]:px-8">

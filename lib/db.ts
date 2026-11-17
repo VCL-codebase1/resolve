@@ -79,6 +79,14 @@ async function seed(db: Db) {
     { name: "Chioma Eze", email: "chioma@vethancon.com", role: "lead", dept: "exhibition", queue: true },
     { name: "Zainab Mohammed", email: "zainab@vethancon.com", role: "lead", dept: "creative-marketing", queue: true },
     { name: "Segun Okafor", email: "segun@vethancon.com", role: "lead", dept: "logistic-warehouse", queue: true },
+    { name: "Kemi Adebayo", email: "kemi@vethancon.com", role: "member", dept: "it-software", queue: false },
+    { name: "Bola Akin", email: "bola@vethancon.com", role: "member", dept: "business-operations", queue: false },
+    { name: "Aisha Bello", email: "aisha@vethancon.com", role: "member", dept: "hr-admin", queue: false },
+    { name: "Yusuf Danjuma", email: "yusuf@vethancon.com", role: "member", dept: "account-finance", queue: false },
+    { name: "Seyi Ogun", email: "seyi@vethancon.com", role: "member", dept: "business-development", queue: false },
+    { name: "Nneka Umeh", email: "nneka@vethancon.com", role: "member", dept: "exhibition", queue: false },
+    { name: "Femi Cole", email: "femi@vethancon.com", role: "member", dept: "creative-marketing", queue: false },
+    { name: "Hassan Musa", email: "hassan@vethancon.com", role: "member", dept: "logistic-warehouse", queue: false },
   ];
 
   for (const person of staff) {
