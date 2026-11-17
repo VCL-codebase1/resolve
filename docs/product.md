@@ -144,7 +144,7 @@ Live delivery is the WebSocket in [realtime.md](realtime.md). The Alerts screen 
 
 Every raise, reply, assignment, and status change sends one email per recipient list, not one email per person with a different body. The message is the same. Recipients are on the To line if they are the requester or assignee, and on Cc if they are queue recipients or watchers. Addresses are deduped. The actor is omitted.
 
-The ticket stores a receipt for that send: the event, the message id, the addresses, and the state `queued`, `sent`, or `failed`. The thread shows that list. Delivery webhooks may move `queued` to `sent` or `failed`. If the provider never calls back, `queued` is an honest state. Do not show “delivered” unless the provider said so.
+The ticket stores a receipt for that send: the event, the message id, the addresses, and the state `queued`, `sent`, or `failed`. The thread shows that list. Nodemailer moves `queued` to `sent` when the SMTP server accepts the message, or to `failed` when the send throws. `sent` means the server took it. It does not mean someone opened it. Do not show “delivered” for `queued`.
 
 The email itself is specified in [email.md](email.md).
 

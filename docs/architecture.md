@@ -1,6 +1,6 @@
 # Desk architecture
 
-Decision record for the build that follows these documents. Nothing here is installed yet.
+How Desk is put together. Local Postgres and the VPS path are in [postgres.md](postgres.md). Mail is in [email.md](email.md).
 
 ## Shape
 
@@ -12,14 +12,14 @@ flowchart TB
   phone --> ws[WebSocket /ws]
   next --> api[Route handlers /api/v1]
   api --> db[(Postgres)]
-  api --> mail[Email provider]
+  api --> mail[Nodemailer SMTP]
   api --> ws
-  mail --> hook[POST /webhooks/email]
-  hook --> db
+  mail --> smtp[Company mailbox]
+  hook[POST /webhooks/email] -.-> db
   inbound[POST /inbound/email] -.->|disabled| api
 ```
 
-The WebSocket is how notifications and thread updates arrive while the app is open. The email provider is how receipts leave the building. The inbound email route is drawn as a dotted line because the contract exists and the switch is off. See [email.md](email.md).
+The WebSocket is how notifications and thread updates arrive while the app is open. Mail leaves through Nodemailer and the SMTP server in `SMTP_HOST`. The webhook and the inbound route are dotted because SMTP does not call back, and reply-by-email is off. See [email.md](email.md).
 
 ## Why one process
 
@@ -62,26 +62,27 @@ Login is rate-limited per email and per IP. A disabled user receives the same fa
 
 ## Email
 
-Outbound mail goes through Nodemailer in `lib/mail.ts`. It uses the SMTP server in `SMTP_HOST`. There is no hosted mail API. If `SMTP_HOST` is unset, the receipt is saved and the message is printed in the server log.
+`lib/mail.ts` renders [email/ticket.html](email/ticket.html) and [email/ticket.txt](email/ticket.txt), then sends them with Nodemailer. There is no hosted mail API.
 
-The app renders [email/ticket.html](email/ticket.html) and [email/ticket.txt](email/ticket.txt) with the ticket fields. It stores a receipt row before the send (`queued`), then updates it from the provider response and from `POST /api/v1/webhooks/email`.
+`SMTP_HOST` is the mail server. `SMTP_PORT` defaults to 587. Port 465, or `SMTP_SECURE=true`, turns on TLS from the first byte. `SMTP_USER` and `SMTP_PASS` are sent when a user is set. `EMAIL_FROM` is the From address. Nodemailer sets `Message-ID` to `<receipt-id@desk.vethancon.com>`, `Reply-To` to `noreply@desk.vethancon.com`, and the `X-Desk-Ticket` and `X-Desk-Event` headers.
 
-`POST /api/v1/inbound/email` is specified and returns 501 until reply-by-email is turned on. The handler must exist so the contract is real, and it must not parse mail into tickets while it is off.
+The receipt row is inserted as `queued` before the send. A successful SMTP accept, and the log-only path when `SMTP_HOST` is unset, set the row to `sent` and store that message id. A thrown send sets the row to `failed`. The ticket write still stands. `POST /api/v1/webhooks/email` can still move a known message id to `sent` or `failed`. Nodemailer does not call it.
+
+`POST /api/v1/inbound/email` returns 501 until reply-by-email is turned on. It does not parse mail into tickets.
 
 ## Realtime
 
 After a successful write, the API publishes one event to the sockets of every recipient. The event names and payloads are in [realtime.md](realtime.md). The publisher is in-process. Do not add Redis until more than one Node process is serving the desk. If that happens, the publish step moves behind a small interface. The event shape does not change.
 
-## Suggested layout for the later build
-
-This is a map, not a scaffold to create now.
+## Layout
 
 ```
 app/                  screens and route handlers
 components/           the components in the design system
-lib/db/               schema and queries
-lib/mail/             template render and provider
-lib/realtime/         socket publish
+lib/db.ts             SQL, schema apply, and seed
+lib/mail.ts           template render and Nodemailer
+lib/realtime.ts       socket publish
+server.ts             Next.js and the WebSocket on one port
 docs/                 these documents
 ```
 

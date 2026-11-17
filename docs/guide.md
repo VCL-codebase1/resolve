@@ -76,7 +76,7 @@ Who can do what is the short version of [product.md](product.md). Members raise 
 
 **Live updates.** The browser keeps a WebSocket on `/ws`. A raise, a reply, an assignment, or a status change arrives as an event. The sound plays only from a notification that is not your own action, and only after you have used the page once. Muting is a control in the sidebar. Badge counts update without a sound. The contract is in [realtime.md](realtime.md).
 
-**Email.** Each of those events also writes a receipt on the ticket: queued, then sent or failed. With no mail provider configured, the receipt is still saved and the message is printed in the server log. The template is in [email.md](email.md). Replying to the email does not enter the thread. That route exists and returns “not implemented,” so it can be switched on later without a new ticket model.
+**Email.** Each of those events also writes a receipt on the ticket: queued, then sent or failed. Nodemailer sends it when `SMTP_HOST` is set. Without that, the receipt is still saved and the message is printed in the server log. The template and the SMTP settings are in [email.md](email.md). Replying to the email does not enter the thread. That route exists and returns “not implemented,” so it can be switched on later without a new ticket model.
 
 **Files.** Attachments live on disk under `data/uploads` and are served only to someone who can read the ticket.
 
@@ -88,4 +88,4 @@ Postgres. If `DATABASE_URL` is unset, Desk uses an embedded Postgres in `data/pg
 
 One Node process serves the pages, the API under `/api/v1`, and the WebSocket. The API contract is [openapi.yaml](openapi.yaml), with a prose version in [api.md](api.md). Visual rules are in [design-system.md](design-system.md). The decision record is [architecture.md](architecture.md).
 
-Still off: a real mailbox until a provider key is set, reply-by-email, Google or Microsoft sign-in, dark mode, and any customer-facing tickets.
+Still off: a mailbox until `SMTP_HOST` is set, reply-by-email, Google or Microsoft sign-in, dark mode, and any customer-facing tickets.

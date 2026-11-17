@@ -2,7 +2,21 @@
 
 Receipts for raise, reply, assign, status change, and an admin writing to a department about unresolved tickets. People reply in Desk. Reply-by-email is specified here and switched off, which is the choice recorded for this version.
 
-The HTML is [email/ticket.html](email/ticket.html). The plain-text part is [email/ticket.txt](email/ticket.txt). Both use the same `{{tokens}}`. Send them as a multipart alternative. The HTML does not require images. The wordmark is text.
+The HTML is [email/ticket.html](email/ticket.html). The plain-text part is [email/ticket.txt](email/ticket.txt). Both use the same `{{tokens}}`. Nodemailer sends them as a multipart alternative. The HTML does not require images. The wordmark is text.
+
+## How it is sent
+
+`lib/mail.ts` uses Nodemailer. There is no Resend account and no other hosted mail API.
+
+| Variable | Role |
+| --- | --- |
+| `SMTP_HOST` | Mail server. Unset means do not connect. The receipt is still saved and the subject is printed in the server log. |
+| `SMTP_PORT` | Defaults to 587. |
+| `SMTP_SECURE` | `true` starts TLS immediately. Port 465 does the same. |
+| `SMTP_USER`, `SMTP_PASS` | Login, when the server asks for one. |
+| `EMAIL_FROM` | From address. Defaults to `Desk <desk@vethancon.com>`. |
+
+The receipt row is written as `queued` first. When Nodemailer accepts the message, or when `SMTP_HOST` is unset and the log line is written, the row becomes `sent` and `providerMessageId` is the id used in `Message-ID`. If `sendMail` throws, the row becomes `failed`. There is no automatic retry. `POST /webhooks/email` can still update a known id. Nodemailer does not call that route.
 
 ## When a receipt goes out
 
@@ -18,7 +32,7 @@ One email per event, not one email per person with a different body.
 
 `To` is the requester and the assignee, when they exist and are not the actor. `Cc` is the target department’s queue recipients and the ticket watchers. Drop duplicates. Drop the actor. If that leaves nobody, do not send, and do not write a receipt.
 
-Write the receipt row as `queued` before the provider call. Store `providerMessageId` when the provider accepts it, and use that same value as the email `Message-ID`. A webhook may move the row to `sent` or `failed`. See `POST /webhooks/email` in [api.md](api.md).
+The receipt id is the `providerMessageId` until a later webhook replaces the state. See `POST /webhooks/email` in [api.md](api.md).
 
 ## Tokens
 
@@ -88,4 +102,4 @@ A success creates a normal message, with the author set to that person, and runs
 
 ## Failure
 
-If the provider call throws, the receipt stays `failed` or moves from `queued` to `failed`, and the ticket write still stands. Mail is not a condition of saving the note. The receipt list shows `failed`. The person can see who was supposed to be copied. There is no automatic retry storm: one retry after five minutes, then stop.
+If Nodemailer throws, the receipt moves from `queued` to `failed`, and the ticket write still stands. Mail is not a condition of saving the note. The receipt list shows `failed`. The person can see who was supposed to be copied. Nothing retries the send.
