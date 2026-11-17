@@ -1,0 +1,1534 @@
+openapi: 3.1.0
+info:
+  title: VethanCon Desk API
+  version: "1.0.0"
+  summary: Internal ticket desk for VethanCon staff.
+  description: |
+    Session-cookie API for Desk. Paths are relative to `/api/v1`.
+
+    The human ticket id (`VC-1042`) is the ticket identifier in paths.
+    User ids are UUIDs.
+
+    `POST /inbound/email` is specified and disabled. It returns 501
+    until reply-by-email is switched on. It must not create messages.
+servers:
+  - url: /api/v1
+    description: Same origin as the Desk app
+tags:
+  - name: Auth
+  - name: Departments
+  - name: People
+  - name: Tickets
+  - name: Notifications
+  - name: Badges
+  - name: Admin
+  - name: Receipts
+  - name: Webhooks
+security:
+  - sessionCookie: []
+paths:
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Sign in
+      description: |
+        Sets the `desk_session` cookie. A wrong password and a disabled
+        account return the same 401. Rate-limited per email and per IP.
+      security: []
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginRequest"
+      responses:
+        "200":
+          description: Signed in. The session cookie is set.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: '`desk_session=<token>; HttpOnly; Secure; SameSite=Lax; Path=/`'
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/Validation"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Sign out
+      description: Revokes the current session and clears the cookie.
+      operationId: logout
+      responses:
+        "204":
+          description: Signed out.
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+              description: Cookie cleared.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /me:
+    get:
+      tags: [Auth]
+      summary: Current person
+      operationId: getMe
+      responses:
+        "200":
+          description: The signed-in person.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Me"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /departments:
+    get:
+      tags: [Departments]
+      summary: List departments
+      description: The nine fixed departments, in the order they are seeded.
+      operationId: listDepartments
+      responses:
+        "200":
+          description: Departments.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Department"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /departments/{slug}:
+    get:
+      tags: [Departments]
+      summary: One department
+      description: Includes the people who receive the queue copy of a receipt.
+      operationId: getDepartment
+      parameters:
+        - $ref: "#/components/parameters/DepartmentSlug"
+      responses:
+        "200":
+          description: Department.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Department"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /people:
+    get:
+      tags: [People]
+      summary: Directory
+      description: |
+        Active and inactive people, as name, role, and department.
+        Email addresses are included only when the caller is an admin.
+      operationId: listPeople
+      parameters:
+        - name: department
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/DepartmentSlug"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 100
+      responses:
+        "200":
+          description: People.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Person"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [People]
+      summary: Create a person
+      description: Admin only. There is no public sign-up.
+      operationId: createPerson
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PersonCreate"
+      responses:
+        "201":
+          description: Created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Person"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: That email is already in use.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          $ref: "#/components/responses/Validation"
+
+  /people/{id}:
+    patch:
+      tags: [People]
+      summary: Update a person
+      description: |
+        Admin only. Can change name, role, home department, active flag,
+        password, queue-recipient membership, and watched departments.
+        Omitted fields stay as they are.
+      operationId: updatePerson
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PersonUpdate"
+      responses:
+        "200":
+          description: Updated person.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Person"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: That email is already in use.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          $ref: "#/components/responses/Validation"
+
+  /tickets:
+    get:
+      tags: [Tickets]
+      summary: List tickets
+      description: |
+        `scope=mine` (default) is tickets you raised, are assigned, or watch.
+        `scope=queue` is tickets aimed at your home department.
+        `scope=watching` is tickets aimed at a department you watch,
+        excluding tickets already in `mine`.
+        `scope=all` is every ticket. Admins only. Other roles receive 403.
+        `department`, when set, limits the list to that target department.
+        Members may only filter to their home department or one they watch.
+        Admins may filter to any department.
+        Pending is two statuses. Admins load it from `GET /admin/tickets`.
+      operationId: listTickets
+      parameters:
+        - name: scope
+          in: query
+          schema:
+            type: string
+            enum: [mine, queue, watching, all]
+            default: mine
+        - name: status
+          in: query
+          schema:
+            $ref: "#/components/schemas/Status"
+        - name: department
+          in: query
+          schema:
+            $ref: "#/components/schemas/DepartmentSlug"
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 30
+      responses:
+        "200":
+          description: A page of tickets, newest activity first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TicketPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Tickets]
+      summary: Raise a ticket
+      description: |
+        The requester is the signed-in person. The source department is
+        their home department at this moment and is stored on the ticket.
+        Creates the first message from `body`. Notifies the target
+        department's queue recipients. Does not notify the requester.
+      operationId: createTicket
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TicketCreate"
+      responses:
+        "201":
+          description: Created ticket, including the first message.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TicketDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          $ref: "#/components/responses/Validation"
+
+  /tickets/{id}:
+    get:
+      tags: [Tickets]
+      summary: Get a ticket
+      description: |
+        Caller must be the requester, the assignee, a watcher, a member
+        of the source or target department, or an admin.
+      operationId: getTicket
+      parameters:
+        - $ref: "#/components/parameters/TicketId"
+      responses:
+        "200":
+          description: Ticket, messages, and watchers.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TicketDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Tickets]
+      summary: Assign, set priority, or change status
+      description: |
+        Lead of the target department, or an admin.
+        Assigning a person sets status from `open` to `in_progress`.
+        `assigneeId: null` clears the assignee and does not change status.
+        The assignee must belong to the target department.
+        `closed` is allowed only from `resolved`.
+        A reply on a resolved ticket is what returns it to `open`; this
+        route does not do that.
+      operationId: updateTicket
+      parameters:
+        - $ref: "#/components/parameters/TicketId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TicketUpdate"
+      responses:
+        "200":
+          description: Updated ticket.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TicketDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The status change is not allowed from the current status.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          $ref: "#/components/responses/Validation"
+
+  /tickets/{id}/messages:
+    post:
+      tags: [Tickets]
+      summary: Reply
+      description: |
+        Adds a note. Allowed for the requester, assignee, watchers,
+        members of the target department, and admins.
+        Refused with 409 when the ticket is `closed`.
+        A reply on a `resolved` ticket sets status back to `open`.
+        Files are added with `POST /tickets/{id}/attachments`.
+      operationId: createMessage
+      parameters:
+        - $ref: "#/components/parameters/TicketId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MessageCreate"
+      responses:
+        "201":
+          description: The new message.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The ticket is closed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          $ref: "#/components/responses/Validation"
+
+  /tickets/{id}/watchers:
+    post:
+      tags: [Tickets]
+      summary: Add a watcher
+      description: |
+        Lead of the target department, an admin, or the requester adding
+        themselves. The watcher must be an active person.
+      operationId: addWatcher
+      parameters:
+        - $ref: "#/components/parameters/TicketId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId]
+              properties:
+                userId:
+                  $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: Updated watcher list.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [watchers]
+                properties:
+                  watchers:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Person"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/Validation"
+
+  /tickets/{id}/watchers/{userId}:
+    delete:
+      tags: [Tickets]
+      summary: Remove a watcher
+      description: |
+        Lead of the target department, an admin, or the requester
+        removing themselves.
+      operationId: removeWatcher
+      parameters:
+        - $ref: "#/components/parameters/TicketId"
+        - $ref: "#/components/parameters/UserId"
+      responses:
+        "204":
+          description: Removed.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /tickets/{id}/attachments:
+    post:
+      tags: [Tickets]
+      summary: Attach a file to a message
+      description: |
+        Multipart upload. The caller must have authored `messageId`,
+        and the ticket must not be closed.
+        Allowed types: `image/png`, `image/jpeg`, `image/webp`, `application/pdf`.
+        The type is sniffed from the bytes. Maximum 10 MB.
+        Maximum 5 files on one message.
+      operationId: createAttachment
+      parameters:
+        - $ref: "#/components/parameters/TicketId"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, messageId]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                messageId:
+                  $ref: "#/components/schemas/Uuid"
+      responses:
+        "201":
+          description: Stored attachment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Attachment"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The ticket is closed, or the message already has 5 files.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: The file is over 10 MB.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "415":
+          description: The file type is not allowed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          $ref: "#/components/responses/Validation"
+
+  /attachments/{id}:
+    get:
+      tags: [Tickets]
+      summary: Download an attachment
+      description: |
+        Same read rule as the ticket the file belongs to.
+        `Content-Type` is the sniffed media type.
+        `Content-Disposition` is `inline` for images and `attachment` for PDF.
+      operationId: getAttachment
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: File bytes.
+          headers:
+            Content-Type:
+              schema:
+                type: string
+            Content-Disposition:
+              schema:
+                type: string
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/webp:
+              schema:
+                type: string
+                format: binary
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /badges:
+    get:
+      tags: [Badges]
+      summary: Section counts for the current person
+      description: |
+        Counts for Inbox, Queue, and Alerts. Admins also receive `monitor`.
+        Unresolved means `open`, `in_progress`, or `waiting`.
+        A zero is returned as 0. The client hides that badge.
+      operationId: getBadges
+      responses:
+        "200":
+          description: Current counts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Badges"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /admin/summary:
+    get:
+      tags: [Admin]
+      summary: Monitor counts
+      description: Admin only. Company-wide buckets and one row per department.
+      operationId: adminSummary
+      responses:
+        "200":
+          description: Monitor home.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminSummary"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /admin/tickets:
+    get:
+      tags: [Admin]
+      summary: Tickets in one monitor section
+      description: Admin only. Newest activity first.
+      operationId: adminTickets
+      parameters:
+        - name: bucket
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/MonitorBucket"
+        - name: department
+          in: query
+          schema:
+            $ref: "#/components/schemas/DepartmentSlug"
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 30
+      responses:
+        "200":
+          description: A page of tickets.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TicketPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/Validation"
+
+  /admin/outreach:
+    get:
+      tags: [Admin]
+      summary: Outreach history
+      description: Admin only. Newest first.
+      operationId: listOutreach
+      parameters:
+        - name: department
+          in: query
+          schema:
+            $ref: "#/components/schemas/DepartmentSlug"
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 30
+      responses:
+        "200":
+          description: Outreach records.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OutreachPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [Admin]
+      summary: Reach out to a department
+      description: |
+        Admin only. Sends a note to the department's queue recipients
+        as an alert and an email. Does not create a ticket and does not
+        change status. Refuses with 409 when that department has no
+        unresolved tickets. The stored ticket ids are the unresolved
+        set at send time.
+      operationId: createOutreach
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OutreachCreate"
+      responses:
+        "201":
+          description: Recorded outreach.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Outreach"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: That department has no unresolved tickets.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          $ref: "#/components/responses/Validation"
+
+  /notifications:
+    get:
+      tags: [Notifications]
+      summary: List notifications for the current person
+      operationId: listNotifications
+      parameters:
+        - name: unread
+          in: query
+          schema:
+            type: boolean
+            default: false
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 30
+      responses:
+        "200":
+          description: Newest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/NotificationPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /notifications/read:
+    post:
+      tags: [Notifications]
+      summary: Mark notifications read
+      description: |
+        With `ids`, marks those rows read. They must belong to the caller.
+        With an empty body or an empty `ids` array, marks every unread
+        notification for the caller as read.
+      operationId: markNotificationsRead
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/Uuid"
+      responses:
+        "204":
+          description: Updated.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /tickets/{id}/receipts:
+    get:
+      tags: [Receipts]
+      summary: Email receipts for a ticket
+      description: |
+        One row per outbound email. States are `queued`, `sent`, and `failed`.
+        `sent` means the provider accepted the message. It does not mean
+        every mailbox has opened it.
+        Same read rule as the ticket.
+      operationId: listReceipts
+      parameters:
+        - $ref: "#/components/parameters/TicketId"
+      responses:
+        "200":
+          description: Receipts, oldest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Receipt"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /webhooks/email:
+    post:
+      tags: [Webhooks]
+      summary: Delivery status for a receipt
+      description: |
+        Called by the mail adapter after it has verified the provider
+        signature. This route checks `X-Desk-Signature`, an HMAC-SHA256
+        hex digest of the raw body using the webhook secret.
+        Matches `providerMessageId` to a receipt and sets `sent` or `failed`.
+        Unknown ids return 204 so a retry does not loop.
+        This route does not use the session cookie.
+      security: []
+      operationId: emailWebhook
+      parameters:
+        - name: X-Desk-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+            description: Hex HMAC-SHA256 of the raw request body.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailWebhook"
+      responses:
+        "204":
+          description: Accepted. Unknown message ids are ignored.
+        "401":
+          description: Signature missing or wrong.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /inbound/email:
+    post:
+      tags: [Webhooks]
+      summary: Inbound email reply
+      description: |
+        Disabled. Always returns 501. Does not read the body into a ticket.
+
+        When reply-by-email is switched on, this route will accept the
+        `InboundEmail` body, verify the provider signature the same way
+        as `/webhooks/email`, find the ticket from `token`, and append a
+        message only if the sender address belongs to a person who is
+        allowed to reply. Until that switch, clients and mail providers
+        must not rely on this route.
+      security: []
+      operationId: inboundEmail
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InboundEmail"
+      responses:
+        "501":
+          description: Reply-by-email is off.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              examples:
+                disabled:
+                  value:
+                    error:
+                      code: inbound_disabled
+                      message: Reply by email is not switched on. Open the ticket in Desk.
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: desk_session
+      description: Server session. The cookie value is opaque. The server stores a hash.
+
+  parameters:
+    TicketId:
+      name: id
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/TicketId"
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/Uuid"
+    DepartmentSlug:
+      name: slug
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/DepartmentSlug"
+
+  responses:
+    Unauthorized:
+      description: Not signed in, or the email and password do not match.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            login:
+              value:
+                error:
+                  code: unauthorized
+                  message: Email or password is wrong.
+    Forbidden:
+      description: Signed in, not allowed to do this.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: No such record, or it is hidden from this caller. The body does not say which.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Validation:
+      description: A field is missing or out of range.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RateLimited:
+      description: Too many attempts. Retry after the header.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              examples: [unauthorized, forbidden, not_found, validation, conflict, rate_limited, inbound_disabled]
+            message:
+              type: string
+            fields:
+              type: object
+              additionalProperties:
+                type: string
+              description: Present on validation errors. Keys are field names.
+
+    Uuid:
+      type: string
+      format: uuid
+
+    TicketId:
+      type: string
+      pattern: '^VC-[1-9][0-9]*$'
+      examples: ["VC-1042"]
+
+    DepartmentSlug:
+      type: string
+      enum:
+        - it-software
+        - business-operations
+        - hr-admin
+        - account-finance
+        - sales
+        - business-development
+        - exhibition
+        - creative-marketing
+        - logistic-warehouse
+
+    Role:
+      type: string
+      enum: [member, lead, admin]
+
+    Status:
+      type: string
+      enum: [open, in_progress, waiting, resolved, closed]
+
+    Priority:
+      type: string
+      enum: [low, normal, high, urgent]
+
+    Sound:
+      type: string
+      enum: [raise, reply, status]
+
+    MonitorBucket:
+      type: string
+      enum: [raised, pending, resolved, closed]
+
+    Badges:
+      type: object
+      required: [inbox, queue, alerts]
+      properties:
+        inbox:
+          type: integer
+          minimum: 0
+          description: Unresolved tickets in the caller's inbox.
+        queue:
+          type: integer
+          minimum: 0
+          description: Unresolved tickets aimed at the caller's home department.
+        alerts:
+          type: integer
+          minimum: 0
+          description: Unread notifications.
+        monitor:
+          $ref: "#/components/schemas/MonitorCounts"
+          description: Present only when the caller is an admin.
+
+    MonitorCounts:
+      type: object
+      required: [raised, pending, resolved, closed]
+      properties:
+        raised:
+          type: integer
+          minimum: 0
+        pending:
+          type: integer
+          minimum: 0
+        resolved:
+          type: integer
+          minimum: 0
+        closed:
+          type: integer
+          minimum: 0
+
+    DepartmentCounts:
+      allOf:
+        - $ref: "#/components/schemas/MonitorCounts"
+        - type: object
+          required: [slug, name, unresolved]
+          properties:
+            slug:
+              $ref: "#/components/schemas/DepartmentSlug"
+            name:
+              type: string
+            unresolved:
+              type: integer
+              minimum: 0
+              description: raised + pending for this target department.
+
+    AdminSummary:
+      allOf:
+        - $ref: "#/components/schemas/MonitorCounts"
+        - type: object
+          required: [departments]
+          properties:
+            departments:
+              type: array
+              minItems: 9
+              maxItems: 9
+              items:
+                $ref: "#/components/schemas/DepartmentCounts"
+
+    OutreachCreate:
+      type: object
+      required: [departmentSlug, note]
+      properties:
+        departmentSlug:
+          $ref: "#/components/schemas/DepartmentSlug"
+        note:
+          type: string
+          minLength: 1
+          maxLength: 2000
+
+    Outreach:
+      type: object
+      required: [id, departmentSlug, note, unresolvedCount, ticketIds, createdAt, actor, receipt]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        departmentSlug:
+          $ref: "#/components/schemas/DepartmentSlug"
+        note:
+          type: string
+        unresolvedCount:
+          type: integer
+          minimum: 1
+        ticketIds:
+          type: array
+          items:
+            $ref: "#/components/schemas/TicketId"
+        createdAt:
+          type: string
+          format: date-time
+        actor:
+          $ref: "#/components/schemas/Person"
+        receipt:
+          $ref: "#/components/schemas/Receipt"
+
+    OutreachPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Outreach"
+        nextCursor:
+          type: [string, "null"]
+
+    ReceiptState:
+      type: string
+      enum: [queued, sent, failed]
+
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 1
+
+    Me:
+      type: object
+      required: [id, email, name, role, departmentSlug, watches, active]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        role:
+          $ref: "#/components/schemas/Role"
+        departmentSlug:
+          $ref: "#/components/schemas/DepartmentSlug"
+        watches:
+          type: array
+          items:
+            $ref: "#/components/schemas/DepartmentSlug"
+        active:
+          type: boolean
+
+    Person:
+      type: object
+      required: [id, name, role, departmentSlug, active]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        name:
+          type: string
+        role:
+          $ref: "#/components/schemas/Role"
+        departmentSlug:
+          $ref: "#/components/schemas/DepartmentSlug"
+        active:
+          type: boolean
+        email:
+          type: string
+          format: email
+          description: Present when the caller is an admin.
+
+    PersonCreate:
+      type: object
+      required: [name, email, password, role, departmentSlug]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 10
+          maxLength: 200
+        role:
+          $ref: "#/components/schemas/Role"
+        departmentSlug:
+          $ref: "#/components/schemas/DepartmentSlug"
+        queueRecipient:
+          type: boolean
+          default: false
+          description: When true, this person is copied on receipts for their home department.
+        watches:
+          type: array
+          items:
+            $ref: "#/components/schemas/DepartmentSlug"
+
+    PersonUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 80
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 10
+          maxLength: 200
+        role:
+          $ref: "#/components/schemas/Role"
+        departmentSlug:
+          $ref: "#/components/schemas/DepartmentSlug"
+        active:
+          type: boolean
+        queueRecipient:
+          type: boolean
+        watches:
+          type: array
+          items:
+            $ref: "#/components/schemas/DepartmentSlug"
+
+    Department:
+      type: object
+      required: [slug, name, recipients]
+      properties:
+        slug:
+          $ref: "#/components/schemas/DepartmentSlug"
+        name:
+          type: string
+        recipients:
+          type: array
+          description: People copied on the department queue receipt.
+          items:
+            $ref: "#/components/schemas/Person"
+
+    Ticket:
+      type: object
+      required:
+        - id
+        - title
+        - status
+        - priority
+        - requester
+        - sourceDepartment
+        - targetDepartment
+        - assignee
+        - createdAt
+        - updatedAt
+      properties:
+        id:
+          $ref: "#/components/schemas/TicketId"
+        title:
+          type: string
+        status:
+          $ref: "#/components/schemas/Status"
+        priority:
+          $ref: "#/components/schemas/Priority"
+        requester:
+          $ref: "#/components/schemas/Person"
+        sourceDepartment:
+          $ref: "#/components/schemas/DepartmentSlug"
+        targetDepartment:
+          $ref: "#/components/schemas/DepartmentSlug"
+        assignee:
+          oneOf:
+            - $ref: "#/components/schemas/Person"
+            - type: "null"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    TicketPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Ticket"
+        nextCursor:
+          type: [string, "null"]
+
+    TicketCreate:
+      type: object
+      required: [title, body, targetDepartment]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 120
+        body:
+          type: string
+          minLength: 1
+          maxLength: 8000
+        targetDepartment:
+          $ref: "#/components/schemas/DepartmentSlug"
+        priority:
+          $ref: "#/components/schemas/Priority"
+          default: normal
+
+    TicketUpdate:
+      type: object
+      description: At least one field is required.
+      properties:
+        status:
+          $ref: "#/components/schemas/Status"
+        priority:
+          $ref: "#/components/schemas/Priority"
+        assigneeId:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid"
+            - type: "null"
+
+    Message:
+      type: object
+      required: [id, ticketId, author, body, createdAt, attachments]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        ticketId:
+          $ref: "#/components/schemas/TicketId"
+        author:
+          $ref: "#/components/schemas/Person"
+        body:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        attachments:
+          type: array
+          items:
+            $ref: "#/components/schemas/Attachment"
+
+    MessageCreate:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 8000
+
+    TicketDetail:
+      allOf:
+        - $ref: "#/components/schemas/Ticket"
+        - type: object
+          required: [messages, watchers]
+          properties:
+            messages:
+              type: array
+              items:
+                $ref: "#/components/schemas/Message"
+            watchers:
+              type: array
+              items:
+                $ref: "#/components/schemas/Person"
+
+    Attachment:
+      type: object
+      required: [id, messageId, name, mediaType, size]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        messageId:
+          $ref: "#/components/schemas/Uuid"
+        name:
+          type: string
+        mediaType:
+          type: string
+          enum: [image/png, image/jpeg, image/webp, application/pdf]
+        size:
+          type: integer
+          minimum: 1
+
+    Notification:
+      type: object
+      required: [id, type, sentence, sound, read, createdAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        type:
+          type: string
+          enum: [ticket.raised, ticket.replied, ticket.assigned, ticket.status_changed, department.outreach]
+        ticketId:
+          oneOf:
+            - $ref: "#/components/schemas/TicketId"
+            - type: "null"
+          description: Null when type is department.outreach.
+        departmentSlug:
+          $ref: "#/components/schemas/DepartmentSlug"
+          description: Set when type is department.outreach.
+        sentence:
+          type: string
+          description: The one-line alert from the product doc.
+        sound:
+          $ref: "#/components/schemas/Sound"
+        read:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        actor:
+          $ref: "#/components/schemas/Person"
+
+    NotificationPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Notification"
+        nextCursor:
+          type: [string, "null"]
+
+    Receipt:
+      type: object
+      required: [id, event, to, cc, state, createdAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        ticketId:
+          oneOf:
+            - $ref: "#/components/schemas/TicketId"
+            - type: "null"
+          description: Set for ticket mail. Null for an outreach receipt.
+        outreachId:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid"
+            - type: "null"
+          description: Set for an outreach receipt. Null for ticket mail.
+        event:
+          type: string
+          enum: [ticket.raised, ticket.replied, ticket.assigned, ticket.status_changed, department.outreach]
+        providerMessageId:
+          type: [string, "null"]
+          description: Set once the provider accepts the send. Also used as the email Message-ID.
+        to:
+          type: array
+          items:
+            type: string
+            format: email
+        cc:
+          type: array
+          items:
+            type: string
+            format: email
+        state:
+          $ref: "#/components/schemas/ReceiptState"
+        createdAt:
+          type: string
+          format: date-time
+
+    EmailWebhook:
+      type: object
+      required: [providerMessageId, state]
+      properties:
+        providerMessageId:
+          type: string
+        state:
+          type: string
+          enum: [sent, failed]
+        reason:
+          type: string
+          description: Short provider reason when state is failed. Not shown raw in the product UI.
+
+    InboundEmail:
+      type: object
+      description: |
+        Future body for reply-by-email. Ignored while the route returns 501.
+      required: [token, from, text, messageId]
+      properties:
+        token:
+          type: string
+          description: The token in `ticket+{token}@` from the Reply-To address.
+        from:
+          type: string
+          format: email
+        text:
+          type: string
+          description: Plain-text body, with the quoted receipt stripped by the parser.
+        messageId:
+          type: string
+          description: The inbound Message-ID.
+        inReplyTo:
+          type: string
+          description: The Message-ID this mail answers. Should match a receipt.
+        subject:
+          type: string

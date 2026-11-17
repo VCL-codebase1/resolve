@@ -1,0 +1,15 @@
+{{eventLabel}}
+{{title}}
+{{ticketId}} · {{meta}}
+
+{{actorName}} · {{actorDepartment}}
+
+{{note}}
+
+Open in Desk
+{{ticketUrl}}
+
+Copied
+{{copied}}
+
+Reply in Desk. A reply to this email is not added to the ticket.
