@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { DeskProvider, useDesk } from "./provider";
 import { api, badgeText } from "./api";
@@ -31,12 +32,18 @@ function NavLink({ href, label, count, alert }: { href: string; label: string; c
   );
 }
 
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/).slice(0, 2);
+  return parts.map((part) => part[0]?.toUpperCase() ?? "").join("") || "D";
+}
+
 function Chrome({ children }: { children: React.ReactNode }) {
   const { me, badges, departments, muted, setMuted, setComposer, notes, dismiss } = useDesk();
   const router = useRouter();
+  const [profile, setProfile] = useState(false);
   const department = departments.find((item) => item.slug === me?.departmentSlug)?.name;
   const monitor = me?.role === "admin" ? (badges.monitor?.raised ?? 0) + (badges.monitor?.pending ?? 0) : 0;
-  const role = me?.role === "admin" ? "Admin" : me?.role === "lead" ? "Lead" : "Staff";
+  const role = me?.role === "admin" ? "Admin" : me?.role === "lead" ? "Head" : "Staff";
 
   async function signOut() {
     await api("/auth/logout", { method: "POST" });
@@ -49,13 +56,15 @@ function Chrome({ children }: { children: React.ReactNode }) {
         <Link href="/inbox" className="px-3 text-[16px] font-semibold">
           Desk
         </Link>
-        <div className="mx-3 mt-4 border-t border-white/70 pt-3">
-          <p className="text-[14px] font-semibold">{me?.name}</p>
-          <p className="mt-0.5 text-[13px] text-muted">
-            {role}
-            {department ? ` · ${department}` : ""}
-          </p>
-        </div>
+        <button type="button" className="mx-1 mt-4 flex items-center gap-3 rounded-[14px] px-2 py-2 text-left" onClick={() => setProfile(true)}>
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-wash text-[13px] font-semibold text-action">
+            {initials(me?.name || "")}
+          </span>
+          <span className="min-w-0">
+            <span className="block truncate text-[14px] font-semibold">{me?.name}</span>
+            <span className="mt-0.5 block truncate text-[13px] text-muted">{role}</span>
+          </span>
+        </button>
         <nav className="mt-4 flex flex-col gap-1">
           <NavLink href="/inbox" label="Inbox" count={badges.inbox} />
           <NavLink href="/queue" label="Queue" count={badges.queue} />
@@ -78,9 +87,14 @@ function Chrome({ children }: { children: React.ReactNode }) {
           <p className="hidden min-w-0 truncate text-[14px] text-muted min-[880px]:block">
             {department} · {role}
           </p>
-          <div className="ml-auto flex shrink-0 items-center gap-1">
-            <button type="button" className="h-10 px-2 text-[13px] text-action min-[880px]:hidden" onClick={() => void signOut()}>
-              Sign out
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              aria-label="Your profile"
+              className="flex size-10 items-center justify-center rounded-full bg-wash text-[13px] font-semibold text-action"
+              onClick={() => setProfile(true)}
+            >
+              {initials(me?.name || "")}
             </button>
             <button type="button" className="h-10 rounded-full bg-action px-4 text-[14px] font-semibold text-white" onClick={() => setComposer(true)}>
               New ticket
@@ -106,6 +120,34 @@ function Chrome({ children }: { children: React.ReactNode }) {
           {me?.role === "admin" ? <Tab href="/monitor" label="Monitor" count={monitor} /> : null}
         </div>
       </nav>
+      {profile && me ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-[rgba(8,22,52,0.28)] min-[760px]:items-center" onClick={() => setProfile(false)}>
+          <section onClick={(event) => event.stopPropagation()} className="pane w-full rounded-t-[28px] px-6 py-6 min-[760px]:max-w-sm min-[760px]:rounded-[28px]">
+            <div className="flex items-center gap-4">
+              <span className="flex size-14 items-center justify-center rounded-full bg-action text-[18px] font-semibold text-white">
+                {initials(me.name)}
+              </span>
+              <div className="min-w-0">
+                <h2 className="truncate text-[18px] font-semibold">{me.name}</h2>
+                <p className="truncate text-[14px] text-muted">{me.email}</p>
+              </div>
+            </div>
+            <dl className="mt-5 border-t border-line text-[14px]">
+              <div className="flex justify-between gap-4 border-b border-line py-3">
+                <dt className="text-muted">Role</dt>
+                <dd>{role}</dd>
+              </div>
+              <div className="flex justify-between gap-4 py-3">
+                <dt className="text-muted">Department</dt>
+                <dd className="text-right">{department || "Not set"}</dd>
+              </div>
+            </dl>
+            <button type="button" className="mt-4 h-11 text-[14px] text-action" onClick={() => void signOut()}>
+              Sign out
+            </button>
+          </section>
+        </div>
+      ) : null}
       <Composer />
     </div>
   );
