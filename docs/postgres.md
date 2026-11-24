@@ -141,26 +141,27 @@ pg_dump "$DATABASE_URL" --format=custom --file=desk.dump
 
 Restore onto an empty database with `pg_restore --no-owner --dbname=desk desk.dump`. Take a dump before each deploy that might change `schema.sql`. The app does not run versioned migrations. If `departments` already exists, a changed `schema.sql` is not applied. Alter an existing database yourself, then restart.
 
-## Neon, for a hosted test database
+## Supabase (or Neon), for a hosted test database
 
-Neon is Postgres. Desk uses it the same way as a database on this machine: set `DATABASE_URL` and start the app. An empty Neon database gets `schema.sql`, the nine departments, and the staff in [deployment.md](deployment.md) on first start. Every account uses `SEED_PASSWORD`, or `Desk-staff-1` if that variable is unset.
+Supabase and Neon both expose Postgres. Desk does not use the Supabase JS client or `NEXT_PUBLIC_SUPABASE_*`. Put the **Database URI** in `SUPABASE_DB_URL` (or `DATABASE_URL`). Never put that URI in a `NEXT_PUBLIC_` variable.
 
-1. Create a project at [neon.tech](https://neon.tech) and copy the connection string. It looks like `postgres://user:password@ep-xxxx.region.aws.neon.tech/neondb?sslmode=require`.
-2. From the project folder, point the app at it and start:
+In Supabase: **Project Settings → Database → Connect → URI**. Prefer the **Session pooler** host (`*.pooler.supabase.com`). The direct host `db.<project>.supabase.co` often fails DNS (`ENOTFOUND`) on free projects. Quote the URI when the password contains `#` or `+`, or URL-encode those characters and keep `?sslmode=require`.
+
+`npm run db:migrate` applies [schema.sql](../schema.sql) / [migrations/001_schema.sql](../migrations/001_schema.sql), then seeds the nine departments and the staff in [deployment.md](deployment.md). Missing people are added. Existing emails are left alone. Every new account uses `SEED_PASSWORD`, or `Desk-staff-1` if that variable is unset.
+
+1. Put the URI in `.env` as `SUPABASE_DB_URL`, with `?sslmode=require`.
+2. From the project folder, migrate and seed, then start:
 
 ```bash
-export DATABASE_URL='postgres://…?sslmode=require'
-export APP_ORIGIN='http://localhost:3000'
-export SEED_PASSWORD='choose-a-staff-password'
-export NODE_ENV=production
+npm run db:migrate
 npm run build
 npm start
 ```
 
 3. Open `http://localhost:3000/login` and sign in as `admin@vethancon.com` with `SEED_PASSWORD`.
-4. In Neon’s SQL editor, `SELECT email, role, department_slug FROM users ORDER BY department_slug;` should list the seeded staff.
+4. In the Supabase SQL editor, `SELECT email, role, department_slug FROM users ORDER BY department_slug;` should list the seeded staff.
 
-Do not commit the connection string. The embedded file in `data/pglite` is not used while `DATABASE_URL` is set. Seed rows are inserted only when `departments` is empty, so a second start does not duplicate them.
+Do not commit the connection string. The embedded file in `data/pglite` is not used while `SUPABASE_DB_URL` or `DATABASE_URL` is set.
 
 ## What not to do
 

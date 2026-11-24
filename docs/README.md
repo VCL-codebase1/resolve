@@ -10,16 +10,21 @@ Local PostgreSQL, then the same app on a VPS: [postgres.md](postgres.md).
 
 A walkthrough of the app, the desks, and the flows is in [guide.md](guide.md).
 
+Usability checks for every staff and admin flow: [testing.md](testing.md).
+
 ## Read in this order
 
 1. [guide.md](guide.md) — what the app is, the desks, and how a ticket moves
-2. [product.md](product.md) — departments, roles, tickets, who may do what
-3. [design-system.md](design-system.md) — tokens, type, the skill lock, layout, sound
-4. [architecture.md](architecture.md) — Next.js, Postgres, WebSocket, email
-5. [api.md](api.md) — what each route is for
-6. [openapi.yaml](openapi.yaml) — the contract
-7. [realtime.md](realtime.md) — socket events and sounds
-8. [email.md](email.md) — receipts, the template, and reply-by-email left off
+2. [testing.md](testing.md) — usability testing for all flows
+3. [product.md](product.md) — departments, roles, tickets, who may do what
+4. [design-system.md](design-system.md) — tokens, type, the skill lock, layout, sound
+5. [architecture.md](architecture.md) — Next.js, Postgres, WebSocket, email
+6. [api.md](api.md) — what each route is for
+7. [openapi.yaml](openapi.yaml) — the contract
+8. [realtime.md](realtime.md) — socket events and sounds
+9. [email.md](email.md) — receipts, the template, and reply-by-email left off
+10. [postgres.md](postgres.md) — Supabase / local Postgres and `npm run db:migrate`
+11. [deployment.md](deployment.md) — seeded accounts and password
 
 The email template is [email/ticket.html](email/ticket.html) with the plain-text twin [email/ticket.txt](email/ticket.txt).
 

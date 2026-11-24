@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { DeskProvider, useDesk } from "./provider";
 import { api, badgeText } from "./api";
 import { Composer } from "./composer";
+import { Logo, ThemeToggle } from "./brand";
 
 function Tab({ href, label, count, alert }: { href: string; label: string; count: number; alert?: boolean }) {
   const pathname = usePathname();
@@ -51,10 +52,10 @@ function Chrome({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="stage min-h-dvh p-2 text-ink min-[880px]:flex min-[880px]:gap-3 min-[880px]:p-3">
+    <div className="stage min-h-dvh p-0 text-ink min-[880px]:flex min-[880px]:gap-3 min-[880px]:p-3">
       <aside className="glass sticky top-3 hidden h-[calc(100dvh-1.5rem)] w-[248px] shrink-0 flex-col rounded-[22px] px-3 py-4 min-[880px]:flex">
-        <Link href="/inbox" className="px-3 text-[16px] font-semibold">
-          Desk
+        <Link href="/inbox" className="px-1 py-1">
+          <Logo className="h-11 w-auto" />
         </Link>
         <button type="button" className="mx-1 mt-4 flex items-center gap-3 rounded-[14px] px-2 py-2 text-left" onClick={() => setProfile(true)}>
           <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-wash text-[13px] font-semibold text-action">
@@ -73,6 +74,7 @@ function Chrome({ children }: { children: React.ReactNode }) {
           {me?.role === "admin" ? <NavLink href="/directory" label="Directory" count={0} /> : null}
         </nav>
         <div className="mt-auto flex flex-col gap-1">
+          <ThemeToggle />
           <button type="button" className="h-11 rounded-[14px] px-3 text-left text-[14px] text-ink-soft" onClick={() => setMuted(!muted)}>
             {muted ? "Sound off" : "Sound on"}
           </button>
@@ -81,13 +83,16 @@ function Chrome({ children }: { children: React.ReactNode }) {
           </button>
         </div>
       </aside>
-      <div className="flex min-w-0 flex-1 flex-col gap-2 min-[880px]:gap-3">
-        <header className="glass sticky top-2 z-30 flex h-14 shrink-0 items-center gap-3 rounded-[18px] px-4 min-[880px]:top-3">
-          <p className="text-[15px] font-semibold min-[880px]:hidden">Desk</p>
+      <div className="flex min-w-0 flex-1 flex-col gap-0 min-[880px]:gap-3">
+        <header className="glass sticky top-0 z-30 flex h-16 w-full shrink-0 items-center gap-3 rounded-none border-b border-white/40 px-5 min-[880px]:h-[4.5rem] min-[880px]:rounded-[18px] min-[880px]:border-0 min-[880px]:px-5">
+          <Logo className="h-10 w-auto min-[880px]:hidden" />
           <p className="hidden min-w-0 truncate text-[14px] text-muted min-[880px]:block">
             {department} · {role}
           </p>
           <div className="ml-auto flex shrink-0 items-center gap-2">
+            <span className="min-[880px]:hidden">
+              <ThemeToggle />
+            </span>
             <button
               type="button"
               aria-label="Your profile"
@@ -108,7 +113,7 @@ function Chrome({ children }: { children: React.ReactNode }) {
             </button>
           ))}
         </div>
-        <div className="pane min-h-[calc(100dvh-7.5rem)] overflow-hidden rounded-[22px] min-[880px]:min-h-0 min-[880px]:flex-1">
+        <div className="pane min-h-[calc(100dvh-4rem)] overflow-hidden rounded-none min-[880px]:min-h-0 min-[880px]:flex-1 min-[880px]:rounded-[22px]">
           <div className="h-full overflow-auto pb-28 min-[880px]:pb-6">{children}</div>
         </div>
       </div>

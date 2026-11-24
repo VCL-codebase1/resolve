@@ -2,7 +2,7 @@
 
 Desk is the internal ticket desk for VethanCon. A person in one department raises a request to another. The thread, the assignment, and the email receipts stay on that ticket. It is not a customer portal, and it is not a finance dashboard. Account / Finance is one of the nine queues.
 
-The app is the Next.js project next to this folder. Open it at the URL the server prints. The public page is `/`. Staff sign in at `/login`. Accounts and the database are in [deployment.md](deployment.md). They are not printed on the website.
+The app is the Next.js project next to this folder. Open it at the URL the server prints. The public page is `/`. Staff sign in at `/login`. Admins sign in at `/admin`. Accounts and the database are in [deployment.md](deployment.md). They are not printed on the website. A checklist for trying every flow is in [testing.md](testing.md).
 
 ## The two desks
 
@@ -70,7 +70,7 @@ Who can do what is the short version of [product.md](product.md). Members raise 
 
 **Monitor.** Four count cards: Raised, Pending, Resolved, Closed. Under them, each department with its unresolved count. A department that still has open work has Reach out. The note goes to that queue as an alert and an email. It does not open a new ticket and it does not change any status.
 
-**Directory.** The people who can sign in, and a form to add one. Admins only.
+**Directory.** Departments and people. Admins create departments, add staff, mark a head, and set a new password when someone forgets theirs.
 
 ## What happens off the screen
 
@@ -88,4 +88,4 @@ Postgres. If `DATABASE_URL` is unset, Desk uses an embedded Postgres in `data/pg
 
 One Node process serves the pages, the API under `/api/v1`, and the WebSocket. The API contract is [openapi.yaml](openapi.yaml), with a prose version in [api.md](api.md). Visual rules are in [design-system.md](design-system.md). The decision record is [architecture.md](architecture.md).
 
-Still off: a mailbox until `SMTP_HOST` is set, reply-by-email, Google or Microsoft sign-in, dark mode, and any customer-facing tickets.
+Still off: reply-by-email, Google or Microsoft sign-in, and any customer-facing tickets. Light and dark are available from the theme control. Mail needs a real `SMTP_HOST` to leave the machine.

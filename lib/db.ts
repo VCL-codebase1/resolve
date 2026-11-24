@@ -53,16 +53,12 @@ async function migrate(db: Db) {
 }
 
 async function seed(db: Db) {
-  const count = await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM departments`);
-  if (Number(count[0]?.n) > 0) return;
-
   for (let i = 0; i < DEPARTMENT_SLUGS.length; i++) {
     const slug = DEPARTMENT_SLUGS[i];
-    await db.query(`INSERT INTO departments (slug, name, position) VALUES ($1, $2, $3)`, [
-      slug,
-      DEPARTMENT_NAMES[slug],
-      i + 1,
-    ]);
+    await db.query(
+      `INSERT INTO departments (slug, name, position) VALUES ($1, $2, $3) ON CONFLICT (slug) DO NOTHING`,
+      [slug, DEPARTMENT_NAMES[slug], i + 1],
+    );
   }
 
   const password = process.env.SEED_PASSWORD || "Desk-staff-1";
@@ -90,13 +86,19 @@ async function seed(db: Db) {
   ];
 
   for (const person of staff) {
-    const id = randomUUID();
-    await db.query(
-      `INSERT INTO users (id, email, name, password_hash, role, department_slug) VALUES ($1, $2, $3, $4, $5, $6)`,
-      [id, person.email, person.name, passwordHash, person.role, person.dept],
-    );
+    const existing = await db.query<{ id: string }>(`SELECT id FROM users WHERE lower(email) = lower($1)`, [person.email]);
+    const id = existing[0] ? String(existing[0].id) : randomUUID();
+    if (!existing[0]) {
+      await db.query(
+        `INSERT INTO users (id, email, name, password_hash, role, department_slug) VALUES ($1, $2, $3, $4, $5, $6)`,
+        [id, person.email, person.name, passwordHash, person.role, person.dept],
+      );
+    }
     if (person.queue) {
-      await db.query(`INSERT INTO department_recipients (department_slug, user_id) VALUES ($1, $2)`, [person.dept, id]);
+      await db.query(
+        `INSERT INTO department_recipients (department_slug, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+        [person.dept, id],
+      );
     }
   }
 
@@ -198,7 +200,7 @@ async function seedSamples(db: Db) {
 }
 
 async function open(): Promise<Db> {
-  const url = process.env.DATABASE_URL;
+  const url = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL;
   if (url) {
     const postgres = (await import("postgres")).default;
     const sql = postgres(url, { max: 10 });

@@ -4,6 +4,7 @@ import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, type Me } from "./api";
+import { Logo, ThemeToggle } from "./brand";
 import { useDesk } from "./provider";
 
 export function Composer() {
@@ -135,10 +136,16 @@ export function LoginForm({ admin = false }: { admin?: boolean }) {
   return (
     <main className="stage flex min-h-dvh items-center justify-center px-5">
       <form onSubmit={onSubmit} className="pane w-full max-w-sm rounded-[28px] px-6 py-7">
-        <Link href="/" className="text-[14px] text-action">
-          Desk
+        <div className="flex items-center justify-between">
+          <Link href="/">
+            <Logo className="h-12 w-auto" />
+          </Link>
+          <ThemeToggle />
+        </div>
+        <Link href="/" className="mt-4 inline-flex h-11 items-center text-[14px] text-action">
+          Back to home
         </Link>
-        <h1 className="mt-6 text-[28px] font-semibold tracking-tight">{admin ? "Admin sign in" : "Sign in"}</h1>
+        <h1 className="mt-2 text-[28px] font-semibold tracking-tight">{admin ? "Admin sign in" : "Sign in"}</h1>
         <p className="mt-2 text-[16px] leading-6 text-ink-soft">
           {admin ? "Monitor, directory, and passwords." : "Use the work email an admin gave you."}
         </p>

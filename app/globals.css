@@ -5,13 +5,13 @@
   --font-mono: var(--font-geist), "Geist Mono", ui-monospace, monospace;
   --color-ink: #081634;
   --color-ink-soft: #111827;
-  --color-brand: #087fe8;
-  --color-action: #0557a0;
-  --color-action-press: #044886;
-  --color-signal: #12c4ce;
-  --color-canvas: #f4f7fb;
+  --color-brand: #1ab4f5;
+  --color-action: #0c4da2;
+  --color-action-press: #083a7a;
+  --color-signal: #1ab4f5;
+  --color-canvas: #f4f8fc;
   --color-surface: #ffffff;
-  --color-wash: #eaf6ff;
+  --color-wash: #e7f6fe;
   --color-line: #e5e7eb;
   --color-line-strong: #d0d5dd;
   --color-muted: #667085;
@@ -61,7 +61,7 @@ select {
 }
 
 :focus-visible {
-  outline: 2px solid #087fe8;
+  outline: 2px solid #1ab4f5;
   outline-offset: 2px;
 }
 
@@ -183,6 +183,49 @@ a[class*="bg-action"] {
 
 .live-dot {
   animation: live 2.4s ease-in-out infinite;
+}
+
+.dark {
+  --color-ink: #e8f1fb;
+  --color-ink-soft: #c5d4e8;
+  --color-canvas: #101826;
+  --color-surface: #162033;
+  --color-wash: #16324f;
+  --color-line: #2a3a52;
+  --color-line-strong: #3b4d68;
+  --color-muted: #93a4bd;
+  color-scheme: dark;
+}
+
+.dark body {
+  background: #0b1220;
+}
+
+.dark .stage {
+  background:
+    radial-gradient(900px 520px at 0% 0%, rgba(26, 180, 245, 0.18), transparent 58%),
+    radial-gradient(820px 480px at 100% 0%, rgba(12, 77, 162, 0.35), transparent 55%),
+    linear-gradient(180deg, #101826 0%, #0b1220 100%);
+}
+
+.dark .glass,
+.dark .pane,
+.dark .lift {
+  background: rgba(22, 32, 51, 0.92);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: var(--color-ink);
+}
+
+.dark input,
+.dark textarea,
+.dark select {
+  background: #101826;
+  color: var(--color-ink);
+  border-color: #2a3a52;
+}
+
+.slide-in {
+  animation: rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
