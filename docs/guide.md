@@ -88,4 +88,4 @@ Postgres. If `DATABASE_URL` is unset, Desk uses an embedded Postgres in `data/pg
 
 One Node process serves the pages, the API under `/api/v1`, and the WebSocket. The API contract is [openapi.yaml](openapi.yaml), with a prose version in [api.md](api.md). Visual rules are in [design-system.md](design-system.md). The decision record is [architecture.md](architecture.md).
 
-Still off: reply-by-email, Google or Microsoft sign-in, and any customer-facing tickets. Light and dark are available from the theme control. Mail needs a real `SMTP_HOST` to leave the machine.
+Still off: reply-by-email, Google or Microsoft sign-in, and any customer-facing tickets. Light and dark are available from the theme control. Mail needs a real `SMTP_HOST` to leave the machine
