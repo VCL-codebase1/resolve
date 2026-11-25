@@ -4,7 +4,7 @@ Internal ticket desk for VethanCon. These documents are the product, the visual 
 
 Brand source: [vethancon.com](https://www.vethancon.com/).
 
-Staff accounts, the starting password, and which database is in use: [deployment.md](deployment.md).
+Superadmin setup and database configuration: [deployment.md](deployment.md).
 
 Local PostgreSQL, then the same app on a VPS: [postgres.md](postgres.md).
 
@@ -24,7 +24,7 @@ Usability checks for every staff and admin flow: [testing.md](testing.md).
 8. [realtime.md](realtime.md) — socket events and sounds
 9. [email.md](email.md) — receipts, the template, and reply-by-email left off
 10. [postgres.md](postgres.md) — Supabase / local Postgres and `npm run db:migrate`
-11. [deployment.md](deployment.md) — seeded accounts and password
+11. [deployment.md](deployment.md) — superadmin setup and database configuration
 
 The email template is [email/ticket.html](email/ticket.html) with the plain-text twin [email/ticket.txt](email/ticket.txt).
 

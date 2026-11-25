@@ -14,6 +14,7 @@ await tx(async () => {
   await q("SELECT pg_advisory_xact_lock(7219442)");
   const existing = await q("SELECT id FROM users WHERE lower(email) = $1", [email]);
   if (existing.length) throw new Error("An account with ADMIN_EMAIL already exists. Use Directory to manage it.");
+  await q("INSERT INTO departments (slug, name, position) VALUES ('it-software', 'IT / Software', 1) ON CONFLICT (slug) DO NOTHING");
   const id = randomUUID();
   await q(
     "INSERT INTO users (id, email, name, password_hash, role, department_slug) VALUES ($1,$2,$3,$4,'admin','it-software')",

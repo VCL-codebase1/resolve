@@ -33,7 +33,7 @@ Copy `.env.example` to `.env`. The process does not load `.env` by itself. Expor
 | `APP_ORIGIN` | `http://localhost:3000` | `https://desk.example.com` with no trailing slash. Email links use this. |
 | `PORT` | `3000` if unset | `3000`, behind the reverse proxy |
 | `NODE_ENV` | `development` for `npm run dev`, `production` for `npm start` | `production` |
-| `SEED_PASSWORD` | Set before the first boot of an empty database | A long password. It is only used when the staff rows are created. |
+| `ADMIN_EMAIL` / `ADMIN_NAME` / `ADMIN_PASSWORD` | Set when running `npm run db:admin` | Initial superadmin setup |
 | `SMTP_HOST` | Leave unset to log mail | Your mail server, for example `smtp.example.com` |
 | `SMTP_PORT` | `587` | `587`, or `465` when `SMTP_SECURE=true` |
 | `SMTP_USER` / `SMTP_PASS` | The mailbox login, if the server requires one | Same |
@@ -62,11 +62,14 @@ From the project folder:
 npm install
 export DATABASE_URL='postgres://desk:choose-a-password@127.0.0.1:5432/desk'
 export APP_ORIGIN='http://localhost:3000'
-export SEED_PASSWORD='choose-a-staff-password'
+export ADMIN_EMAIL='admin@example.com'
+export ADMIN_NAME='Administrator'
+export ADMIN_PASSWORD='choose-a-unique-admin-password'
+npm run db:admin
 npm run dev
 ```
 
-Open the URL the process prints. Sign in at `/login` with `admin@vethancon.com` and the value of `SEED_PASSWORD`. The other accounts are listed in [deployment.md](deployment.md).
+Open the URL the process prints. Sign in at `/admin` using `ADMIN_EMAIL` and `ADMIN_PASSWORD`, then create departments and staff through Directory.
 
 Check that the app used this server and not the embedded file:
 
@@ -94,10 +97,10 @@ Use a small Linux VPS (Ubuntu 24.04 is a good default) with a public IPv4 addres
 1. Point a DNS name, such as `desk.example.com`, at the VPS.
 2. Install Node.js 22 or newer, PostgreSQL, and Caddy or nginx.
 3. Clone the repo, run `npm install`, and set the environment from the table above. `NODE_ENV=production`. `APP_ORIGIN` must be the `https` URL staff will open.
-4. Create the role and database the same way as locally. The app creates tables and seed rows on first start.
+4. Create the role and database the same way as locally. The app creates tables on first start.
 5. Build, then run one process: `npm run build` and `NODE_ENV=production npm start`.
 6. Put Caddy or nginx in front of port 3000. Terminate TLS there. Proxy HTTP and WebSocket (`/ws`) to `127.0.0.1:3000`.
-7. Change every seeded password from Directory after the first sign-in. `SEED_PASSWORD` does not update existing rows.
+7. Create the initial superadmin with `npm run db:admin`, then add departments and staff through Directory.
 
 Caddy, as `/etc/caddy/Caddyfile`:
 
@@ -123,7 +126,7 @@ User=desk
 WantedBy=multi-user.target
 ```
 
-`.env` on the server should contain `NODE_ENV=production` as well as `DATABASE_URL`, `APP_ORIGIN`, `PORT=3000`, and `SEED_PASSWORD`. `npm start` sets `NODE_ENV` itself, so the file line is there for anything else that reads it.
+`.env` on the server should contain `NODE_ENV=production` as well as `DATABASE_URL`, `APP_ORIGIN`, and `PORT=3000`. `npm start` sets `NODE_ENV` itself, so the file line is there for anything else that reads it.
 
 ```bash
 sudo systemctl enable --now desk
@@ -147,10 +150,10 @@ Supabase and Neon both expose Postgres. Desk does not use the Supabase JS client
 
 In Supabase: **Project Settings → Database → Connect → URI**. Prefer the **Session pooler** host (`*.pooler.supabase.com`). The direct host `db.<project>.supabase.co` often fails DNS (`ENOTFOUND`) on free projects. Quote the URI when the password contains `#` or `+`, or URL-encode those characters and keep `?sslmode=require`.
 
-`npm run db:migrate` applies [schema.sql](../schema.sql) / [migrations/001_schema.sql](../migrations/001_schema.sql), then seeds the nine departments and the staff in [deployment.md](deployment.md). Missing people are added. Existing emails are left alone. Every new account uses `SEED_PASSWORD`, or `Desk-staff-1` if that variable is unset.
+`npm run db:migrate` applies [schema.sql](../schema.sql). Create the initial superadmin with `npm run db:admin` as described in [deployment.md](deployment.md), then add departments and staff through Directory.
 
 1. Put the URI in `.env` as `SUPABASE_DB_URL`, with `?sslmode=require`.
-2. From the project folder, migrate and seed, then start:
+2. From the project folder, migrate, then start:
 
 ```bash
 npm run db:migrate
@@ -158,8 +161,8 @@ npm run build
 npm start
 ```
 
-3. Open `http://localhost:3000/login` and sign in as `admin@vethancon.com` with `SEED_PASSWORD`.
-4. In the Supabase SQL editor, `SELECT email, role, department_slug FROM users ORDER BY department_slug;` should list the seeded staff.
+3. Run `npm run db:admin` with your administrator settings, then open `http://localhost:3000/admin` and sign in.
+4. In the Supabase SQL editor, `SELECT email, role, department_slug FROM users ORDER BY department_slug;` lists the accounts you have created.
 
 Do not commit the connection string. The embedded file in `data/pglite` is not used while `SUPABASE_DB_URL` or `DATABASE_URL` is set.
 
@@ -168,4 +171,4 @@ Do not commit the connection string. The embedded file in `data/pglite` is not u
 - Do not point a VPS at `data/pglite`. That file is a single-process embedded database.
 - Do not run two Desk processes against one database until realtime is moved off in-process memory. See [architecture.md](architecture.md).
 - Do not commit `.env`. It is gitignored.
-- Do not leave `SEED_PASSWORD` at `Desk-staff-1` on a machine other people can reach.
+- Use a unique `ADMIN_PASSWORD` when creating the initial superadmin.

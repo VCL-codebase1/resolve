@@ -82,7 +82,7 @@ Who can do what is the short version of [product.md](product.md). Members raise 
 
 ## Where the data lives
 
-Postgres. If `DATABASE_URL` is unset, Desk uses an embedded Postgres in `data/pglite` on this machine. If `DATABASE_URL` is set, it uses that server and ignores the embedded file. The schema is [schema.sql](../schema.sql). Details, the seeded staff, and the starting password are in [deployment.md](deployment.md).
+Postgres. If `DATABASE_URL` is unset, Desk uses an embedded Postgres in `data/pglite` on this machine. If `DATABASE_URL` is set, it uses that server and ignores the embedded file. The schema is [schema.sql](../schema.sql). Details and superadmin setup are in [deployment.md](deployment.md).
 
 ## How the pieces fit
 

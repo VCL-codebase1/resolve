@@ -1,14 +1,13 @@
 # Usability testing
 
-How to run Desk and check every staff and admin flow. Accounts and the starting password are in [deployment.md](deployment.md). Architecture and mail are in [architecture.md](architecture.md) and [email.md](email.md).
+How to run Desk and check every staff and admin flow. Superadmin setup is in [deployment.md](deployment.md). Architecture and mail are in [architecture.md](architecture.md) and [email.md](email.md).
 
 ## Before you start
 
 1. Put a working Postgres URI in `SUPABASE_DB_URL` (or leave it unset to use embedded PGlite in `data/pglite`).
-   Enable demo fixtures with `SEED_DEMO=true`. A production run also requires a custom `SEED_PASSWORD` of at least 10 characters.
 2. For Supabase, copy **Session pooler** from Project Settings → Database → Connect. The direct `db.*.supabase.co` host often does not resolve (`ENOTFOUND`).
 3. Quote the URI if the password has `#` or `+`, or URL-encode those characters (`#` → `%23`, `+` → `%2B`) and add `?sslmode=require`.
-4. Migrate and seed, then start:
+4. Migrate, create a superadmin with `npm run db:admin`, then start:
 
 ```bash
 npm run db:migrate
@@ -16,7 +15,7 @@ npm run build
 npm start
 ```
 
-Open `http://localhost:3000`. Seeded password is `SEED_PASSWORD`, or `Desk-staff-1` if unset.
+Open `http://localhost:3000`. Create the staff accounts and departments used below through Directory in a test database. The names and email addresses below are example test fixtures that you create manually. Use their configured passwords.
 
 | Who | Sign-in URL | Email |
 | --- | --- | --- |
@@ -109,7 +108,7 @@ With the production server on port 3000 and seed data present:
 ```bash
 # staff login, raise, receipt, local attach (Cloudinary unset)
 curl -s -c /tmp/desk.txt -H 'content-type: application/json' \
-  -d '{"email":"tunde@vethancon.com","password":"Desk-staff-1"}' \
+  -d '{"email":"tunde@vethancon.com","password":"<configured-test-password>"}' \
   http://127.0.0.1:3000/api/v1/auth/login
 
 curl -s -b /tmp/desk.txt -H 'content-type: application/json' \
