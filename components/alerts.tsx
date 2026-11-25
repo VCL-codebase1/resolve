@@ -95,6 +95,7 @@ export function Alerts() {
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
+          aria-label="Search alerts"
           placeholder="Search alerts"
           className="h-11 w-full rounded-[10px] border border-line bg-surface px-3 text-[14px] min-[560px]:max-w-md"
         />

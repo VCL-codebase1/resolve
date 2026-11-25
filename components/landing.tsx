@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { LottieSvg } from "lottie-react";
-import { DEPARTMENT_NAMES, DEPARTMENT_SLUGS } from "@/lib/labels";
 import mark from "@/public/resolve-mark.json";
 import { api, type Me } from "./api";
 import { Logo, ThemeToggle } from "./brand";
@@ -34,9 +33,9 @@ export function Landing() {
 
   return (
     <div className="stage min-h-dvh text-ink">
-      <header className="glass fixed inset-x-0 top-0 z-20 flex h-16 w-full items-center justify-between gap-3 border-b border-white/50 px-4 pt-[env(safe-area-inset-top)] min-[840px]:h-24 min-[840px]:px-10">
+      <header className="glass fixed inset-x-0 top-0 z-20 flex h-[calc(4rem+env(safe-area-inset-top))] w-full items-center justify-between gap-3 border-b border-white/50 px-4 pt-[env(safe-area-inset-top)] min-[840px]:h-24 min-[840px]:pt-0 min-[840px]:px-10">
         <Link href="/" className="min-w-0 shrink">
-          <Logo className="h-9 w-auto max-w-[46vw] min-[840px]:h-16 min-[840px]:max-w-none" />
+          <Logo className="w-28 min-[400px]:w-40 min-[840px]:w-56" />
         </Link>
         <div className="flex shrink-0 items-center gap-2 min-[840px]:gap-3">
           <ThemeToggle />
@@ -44,11 +43,11 @@ export function Landing() {
             Admin
           </Link>
           {me === undefined ? (
-            <span className="inline-flex h-11 items-center bg-action px-4 text-[14px] font-semibold text-white min-[840px]:px-5">
+            <span className="inline-flex h-11 rounded-xl items-center bg-action px-4 text-[14px] font-semibold text-white min-[840px]:px-5">
               <Spinner className="size-4 text-white" label="Checking your session" />
             </span>
           ) : (
-            <Link href={enter} className="inline-flex h-11 items-center bg-action px-4 text-[14px] font-semibold text-white min-[840px]:px-5">
+            <Link href={enter} className="inline-flex h-11 rounded-xl items-center bg-action px-4 text-[14px] font-semibold text-white min-[840px]:px-5">
               {me ? "Open" : "Sign in"}
             </Link>
           )}
@@ -70,18 +69,15 @@ export function Landing() {
             </p>
             <div className="rise rise-4 mt-6 flex flex-col gap-3 min-[480px]:mt-8 min-[480px]:flex-row min-[480px]:flex-wrap min-[480px]:items-center min-[480px]:gap-4">
               {me === undefined ? (
-                <span className="inline-flex h-11 w-full items-center justify-center bg-action px-5 text-[15px] font-semibold text-white min-[480px]:w-auto">
+                <span className="inline-flex h-11 rounded-xl w-full items-center justify-center bg-action px-5 text-[15px] font-semibold text-white min-[480px]:w-auto">
                   <Spinner className="size-4 text-white" label="Checking your session" />
                 </span>
               ) : (
-                <Link href={enter} className="inline-flex h-11 w-full items-center justify-center bg-action px-5 text-[15px] font-semibold text-white min-[480px]:w-auto">
+                <Link href={enter} className="inline-flex h-11 rounded-xl w-full items-center justify-center bg-action px-5 text-[15px] font-semibold text-white min-[480px]:w-auto">
                   {me ? "Continue to your desk" : "Staff sign in"}
                 </Link>
               )}
-              <a href="#departments" className="inline-flex h-11 items-center justify-center text-[15px] text-action min-[480px]:justify-start">
-                Nine queues
-              </a>
-              <Link href="/admin" className="inline-flex h-11 items-center justify-center text-[15px] text-action min-[480px]:hidden">
+              <Link href="/admin" className="inline-flex h-11 rounded-xl items-center justify-center text-[15px] text-action min-[480px]:hidden">
                 Admin sign in
               </Link>
             </div>
@@ -109,63 +105,7 @@ export function Landing() {
             ))}
           </section>
 
-          <section className="grid gap-4 py-4 min-[840px]:grid-cols-2">
-            <article data-reveal className="lift rounded-[28px] p-5 shadow-[0_18px_40px_rgba(12,77,162,0.08)]">
-              <h2 className="text-[16px] font-semibold">Staff desk</h2>
-              <p className="mt-1 text-[14px] leading-6 text-ink-soft">Your tickets, and the queue for your department.</p>
-              <ul className="mt-3 border-t border-line text-[14px]">
-                <li className="flex justify-between gap-4 border-b border-line py-2.5">
-                  <span>Inbox</span>
-                  <span className="text-muted">Raised, assigned, or watched</span>
-                </li>
-                <li className="flex justify-between gap-4 border-b border-line py-2.5">
-                  <span>Queue</span>
-                  <span className="text-muted">Aimed at your department</span>
-                </li>
-                <li className="flex justify-between gap-4 py-2.5">
-                  <span>Alerts</span>
-                  <span className="text-muted">Replies and status changes</span>
-                </li>
-              </ul>
-            </article>
-            <article data-reveal className="lift rounded-[28px] p-5 shadow-[0_18px_40px_rgba(12,77,162,0.08)]">
-              <h2 className="text-[16px] font-semibold">Admin monitor</h2>
-              <p className="mt-1 text-[14px] leading-6 text-ink-soft">The same desk, plus a view across every queue.</p>
-              <ul className="mt-3 border-t border-line text-[14px]">
-                <li className="flex justify-between gap-4 border-b border-line py-2.5">
-                  <span>Raised</span>
-                  <span className="text-muted">Still open</span>
-                </li>
-                <li className="flex justify-between gap-4 border-b border-line py-2.5">
-                  <span>Pending</span>
-                  <span className="text-muted">In progress or waiting</span>
-                </li>
-                <li className="flex justify-between gap-4 border-b border-line py-2.5">
-                  <span>Resolved / Closed</span>
-                  <span className="text-muted">Finished work</span>
-                </li>
-                <li className="flex justify-between gap-4 py-2.5">
-                  <span>Reach out</span>
-                  <span className="text-muted">A note to a queue, not a new ticket</span>
-                </li>
-              </ul>
-            </article>
-          </section>
 
-          <section id="departments" className="scroll-mt-24 py-8">
-            <div className="flex flex-col gap-1 min-[480px]:flex-row min-[480px]:items-baseline min-[480px]:justify-between min-[480px]:gap-3">
-              <h2 className="text-[16px] font-semibold">Queues</h2>
-              <p className="text-[13px] text-muted">One home department each</p>
-            </div>
-            <ul className="mt-3 grid gap-2 min-[560px]:grid-cols-2 min-[840px]:grid-cols-3">
-              {DEPARTMENT_SLUGS.map((slug) => (
-                <li key={slug} data-reveal className="lift rounded-[22px] px-4 py-3 shadow-[0_12px_28px_rgba(12,77,162,0.06)]">
-                  <p className="text-[14px] leading-5">{DEPARTMENT_NAMES[slug]}</p>
-                  <p className="mt-0.5 font-mono text-[12px] text-muted">{slug}</p>
-                </li>
-              ))}
-            </ul>
-          </section>
         </div>
       </main>
     </div>

@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { api, said, type Me } from "./api";
+import { Dialog } from "./dialog";
 import { Logo, ThemeToggle } from "./brand";
 import { useDesk } from "./provider";
 import { chime, unlockSound } from "./sound";
@@ -53,22 +54,21 @@ export function Composer() {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-[rgba(8,22,52,0.28)] min-[760px]:items-center" onClick={() => setComposer(false)}>
+    <Dialog titleId="new-ticket-title" onClose={() => { if (!pending) setComposer(false); }}>
       <form
-        onClick={(event) => event.stopPropagation()}
         onSubmit={onSubmit}
-        className="glass max-h-[min(92dvh,100%)] w-full overflow-auto rounded-t-[28px] pb-[env(safe-area-inset-bottom)] min-[760px]:max-w-lg min-[760px]:rounded-[28px] min-[760px]:pb-0"
+        className="w-full"
       >
-        <div className="sticky top-0 z-10 flex h-14 items-center justify-between border-b border-white/40 bg-inherit px-4 min-[480px]:px-5">
-          <h2 className="text-[16px] font-semibold">New ticket</h2>
-          <button type="button" className="h-11 px-1 text-[14px] text-action" onClick={() => setComposer(false)}>
+        <div className="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-line bg-surface px-5">
+          <h2 id="new-ticket-title" className="text-lg font-semibold">New ticket</h2>
+          <button type="button" disabled={pending} className="h-11 px-2 text-[14px] text-action disabled:opacity-40" onClick={() => setComposer(false)}>
             Cancel
           </button>
         </div>
-        <div className="flex flex-col gap-4 px-4 py-5 min-[480px]:px-5">
+        <div className="flex min-w-0 flex-col gap-4 px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
           <label className="flex flex-col gap-1 text-[14px] font-medium">
             Title
-            <input name="title" required maxLength={120} className="h-11 rounded-[10px] border border-line bg-surface px-3 font-normal outline-none" />
+            <input name="title" autoFocus required maxLength={120} className="h-11 rounded-[10px] border border-line bg-surface px-3 font-normal outline-none" />
           </label>
           <label className="flex flex-col gap-1 text-[14px] font-medium">
             Department
@@ -98,7 +98,7 @@ export function Composer() {
           </label>
           <label className="flex flex-col gap-1 text-[14px] font-medium">
             File
-            <input name="file" type="file" accept="image/png,image/jpeg,image/webp,application/pdf" className="text-[14px] font-normal" />
+            <input name="file" type="file" accept="image/png,image/jpeg,image/webp,application/pdf" className="max-w-full text-[14px] font-normal" />
           </label>
           {error ? <p className="text-[14px] text-danger">{error}</p> : null}
           <button type="submit" disabled={pending} className="h-11 rounded-[10px] bg-action text-[14px] font-semibold text-white disabled:opacity-40">
@@ -106,7 +106,7 @@ export function Composer() {
           </button>
         </div>
       </form>
-    </div>
+    </Dialog>
   );
 }
 
@@ -165,8 +165,8 @@ export function LoginForm({ admin = false }: { admin?: boolean }) {
       <ToastList notes={notes} dock={false} dismiss={(id) => setNotes((current) => current.filter((note) => note.id !== id))} />
       <form onSubmit={onSubmit} className="pane w-full max-w-sm rounded-[22px] px-5 py-6 min-[480px]:rounded-[28px] min-[480px]:px-6 min-[480px]:py-7">
         <div className="flex items-center justify-between gap-3">
-          <Link href="/" className="min-w-0">
-            <Logo className="h-10 w-auto max-w-[58vw] min-[480px]:h-12 min-[480px]:max-w-none" />
+          <Link href="/">
+            <Logo className="w-40 min-[400px]:w-48" />
           </Link>
           <ThemeToggle />
         </div>

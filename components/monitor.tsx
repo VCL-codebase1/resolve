@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ApiError, api, badgeText, said, type Department, type Person } from "./api";
 import { WorkList } from "./lists";
+import { Dialog } from "./dialog";
 import { useDesk } from "./provider";
 import { PendingLabel, Spinner, SpinnerBlock } from "./spinner";
 
@@ -113,7 +114,7 @@ export function Monitor() {
         <p className="mt-1 max-w-[62ch] text-[15px] leading-6 text-ink-soft">
           Raised is still open. Pending is in progress or waiting. Resolved is done and not closed yet.
         </p>
-        <div className="mt-5 grid grid-cols-1 gap-3 min-[400px]:grid-cols-2 min-[760px]:grid-cols-4">
+        <div className="mt-5 grid grid-cols-2 gap-2 min-[480px]:gap-3 min-[760px]:grid-cols-4">
           {sections.map(([key, name, hint]) => (
             <Link
               key={key}
@@ -134,18 +135,16 @@ export function Monitor() {
         {summary === null && loading ? <SpinnerBlock label="Loading departments" /> : null}
         <ul className="mt-2">
           {summary?.departments.map((item) => (
-            <li key={item.slug} className="flex flex-col gap-2 border-t border-line px-4 py-3 min-[560px]:flex-row min-[560px]:items-center min-[560px]:gap-3 min-[880px]:px-8">
+            <li key={item.slug} className="flex items-center gap-3 border-t border-line px-4 py-3 min-[880px]:px-8">
               <Link href={`/monitor?bucket=pending&department=${item.slug}`} className="min-w-0 flex-1">
                 <span className="block text-[15px]">{item.name}</span>
                 <span className="text-[13px] text-muted">{item.unresolved === 0 ? "Clear" : `${item.unresolved} unresolved`}</span>
               </Link>
+              {item.unresolved > 0 ? <span className="badge">{badgeText(item.unresolved)}</span> : null}
               {item.unresolved > 0 ? (
-                <div className="flex items-center gap-3">
-                  <span className="badge">{badgeText(item.unresolved)}</span>
-                  <button type="button" className="h-11 shrink-0 text-[14px] text-action" onClick={() => setReach(item)}>
-                    Reach out
-                  </button>
-                </div>
+                <button type="button" className="h-11 shrink-0 text-[14px] text-action" onClick={() => setReach(item)}>
+                  Reach out
+                </button>
               ) : null}
             </li>
           ))}
@@ -154,21 +153,23 @@ export function Monitor() {
       </section>
       <WorkList embedded bucket={bucket} department={department || undefined} title={title} lede="Tickets in this section, newest activity first." />
       {reach ? (
-        <div className="fixed inset-0 z-50 flex items-end bg-[rgba(8,22,52,0.35)] min-[880px]:items-center min-[880px]:justify-center" onClick={() => setReach(null)}>
-          <form onClick={(event) => event.stopPropagation()} onSubmit={send} className="glass w-full rounded-t-[28px] p-5 min-[880px]:max-w-lg min-[880px]:rounded-[28px]">
-            <h2 className="text-[18px] font-semibold">Send to {reach.name}</h2>
+        <Dialog titleId="reach-title" onClose={() => { if (!pending) setReach(null); }}>
+          <form onSubmit={send} className="p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+            <h2 id="reach-title" className="text-[18px] font-semibold">Send to {reach.name}</h2>
             <p className="mt-1 text-[14px] text-ink-soft">Queue recipients get an alert and an email. This does not open a new ticket.</p>
-            <textarea required value={note} onChange={(event) => setNote(event.target.value)} rows={5} maxLength={2000} className="mt-4 w-full rounded-[10px] border border-line px-3 py-2" />
-            <div className="mt-4 flex gap-3">
+            <label htmlFor="reach-note" className="mt-4 block text-sm font-medium">Message</label>
+            <textarea id="reach-note" autoFocus required value={note} onChange={(event) => setNote(event.target.value)} rows={5} maxLength={2000} className="mt-1 w-full rounded-[10px] border border-line px-3 py-2" />
+            {error ? <p role="alert" className="mt-3 text-sm text-danger">{error}</p> : null}
+            <div className="mt-4 flex flex-wrap gap-3">
               <button type="submit" disabled={pending} className="h-11 rounded-[10px] bg-action px-4 text-[14px] font-semibold text-white disabled:opacity-40">
-                <PendingLabel pending={pending} idle={`Send to ${reach.name}`} busy="Sending…" />
+                <PendingLabel pending={pending} idle="Send message" busy="Sending…" />
               </button>
               <button type="button" className="h-11 text-[14px] text-action" onClick={() => setReach(null)}>
                 Cancel
               </button>
             </div>
           </form>
-        </div>
+        </Dialog>
       ) : null}
     </div>
   );
@@ -184,6 +185,7 @@ export function Directory() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [pending, setPending] = useState<"" | "department" | "person">("");
+  const [createFor, setCreateFor] = useState<"department" | "person" | null>(null);
   const [resetFor, setResetFor] = useState<string | null>(null);
   const [editFor, setEditFor] = useState<string | null>(null);
   const [busy, setBusy] = useState("");
@@ -277,6 +279,7 @@ export function Directory() {
       const created = await api<Department>("/departments", { method: "POST", body: JSON.stringify({ name: data.get("name") }) });
       setCatalog((current) => [...current.filter((item) => item.slug !== created.slug), created]);
       form.reset();
+      setCreateFor(null);
       setNotice("Department added.");
       toast("Department added.");
     } catch (reason) {
@@ -310,6 +313,7 @@ export function Directory() {
       await loadPeople(0);
       setPage(0);
       form.reset();
+      setCreateFor(null);
       setNotice("Person added.");
       toast("Person added.");
     } catch (reason) {
@@ -423,54 +427,111 @@ export function Directory() {
         <h1 className="mt-2 text-[22px] font-semibold">{superadmin ? "Directory" : "People"}</h1>
         <p className="mt-1 max-w-[62ch] text-[15px] text-ink-soft">
           {superadmin
-            ? "Add, edit, and delete people. A superadmin is an IT / Software account and can see the whole site. A department head only sees their own people and assigns tickets in their queue."
+            ? "Manage people, roles, and department access."
             : "People in your department. Assign someone from a ticket in your queue."}
         </p>
+        {superadmin ? (
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="h-11 rounded-xl bg-action px-4 text-sm font-semibold text-white"
+              onClick={() => {
+                setError("");
+                setCreateFor("person");
+              }}
+            >
+              Add person
+            </button>
+            <button
+              type="button"
+              className="h-11 rounded-xl border border-line bg-surface px-4 text-sm font-medium text-action"
+              onClick={() => {
+                setError("");
+                setCreateFor("department");
+              }}
+            >
+              New department
+            </button>
+          </div>
+        ) : null}
       </header>
-      {superadmin ? <div className="grid gap-6 border-b border-line px-4 py-5 min-[880px]:grid-cols-2 min-[880px]:px-8">
-        <form onSubmit={addDepartment} className="lift grid gap-3 rounded-[22px] p-4">
-          <h2 className="text-[16px] font-semibold">New department</h2>
-          <input name="name" required placeholder="Department name" className="h-11 rounded-[10px] border border-line bg-surface px-3" />
+      {superadmin && createFor ? (
+        <Dialog titleId={`create-${createFor}-title`} onClose={() => { if (!pending) setCreateFor(null); }}>
+        {createFor === "department" ? <form onSubmit={addDepartment} className="grid min-w-0 gap-4 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+          <div className="sticky top-0 z-10 -mx-5 -mt-5 flex items-center justify-between gap-3 border-b border-line bg-surface px-5 py-3">
+            <h2 id="create-department-title" className="text-lg font-semibold">New department</h2>
+            <button type="button" disabled={pending !== ""} className="h-11 px-2 text-sm text-action" onClick={() => setCreateFor(null)}>
+              Cancel
+            </button>
+          </div>
+          <label className="grid gap-1.5 text-sm font-medium">
+            Department name
+            <input name="name" required placeholder="Department name" className="h-11 rounded-[10px] border border-line bg-surface px-3" />
+          </label>
+          {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
           <button type="submit" disabled={pending === "department"} className="h-11 rounded-[10px] bg-action text-[14px] font-semibold text-white disabled:opacity-40">
             <PendingLabel pending={pending === "department"} idle="Add department" busy="Saving…" />
           </button>
-        </form>
-        <form onSubmit={addPerson} className="lift grid gap-3 rounded-[22px] p-4">
-          <h2 className="text-[16px] font-semibold">Add a person</h2>
-          <input name="name" required placeholder="Name" className="h-11 rounded-[10px] border border-line bg-surface px-3" />
-          <input name="email" type="email" required placeholder="Work email" className="h-11 rounded-[10px] border border-line bg-surface px-3" />
-          <input name="password" required minLength={10} placeholder="Password, at least 10 characters" className="h-11 rounded-[10px] border border-line bg-surface px-3" />
-          <select name="role" className="h-11 rounded-[10px] border border-line bg-surface px-3" defaultValue="member">
+        </form> : null}
+        {createFor === "person" ? <form onSubmit={addPerson} className="grid min-w-0 gap-4 p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
+          <div className="sticky top-0 z-10 -mx-5 -mt-5 flex items-center justify-between gap-3 border-b border-line bg-surface px-5 py-3">
+            <h2 id="create-person-title" className="text-lg font-semibold">Add a person</h2>
+            <button type="button" disabled={pending !== ""} className="h-11 px-2 text-sm text-action" onClick={() => setCreateFor(null)}>
+              Cancel
+            </button>
+          </div>
+          <label className="grid gap-1.5 text-sm font-medium">
+            Name
+            <input name="name" required placeholder="Name" className="h-11 rounded-[10px] border border-line bg-surface px-3" />
+          </label>
+          <label className="grid gap-1.5 text-sm font-medium">
+            Work email
+            <input name="email" type="email" required placeholder="Work email" className="h-11 rounded-[10px] border border-line bg-surface px-3" />
+          </label>
+          <label className="grid gap-1.5 text-sm font-medium">
+            Password
+            <input name="password" type="password" autoComplete="new-password" required minLength={10} placeholder="Password, at least 10 characters" className="h-11 rounded-[10px] border border-line bg-surface px-3" />
+          </label>
+          <label className="grid gap-1.5 text-sm font-medium">
+            Role
+            <select name="role" className="h-11 rounded-[10px] border border-line bg-surface px-3" defaultValue="member">
             <option value="member">Member</option>
             <option value="lead">Department head</option>
             <option value="admin">Superadmin</option>
           </select>
-          <select name="departmentSlug" className="h-11 rounded-[10px] border border-line bg-surface px-3" defaultValue={catalog[0]?.slug}>
+          </label>
+          <label className="grid gap-1.5 text-sm font-medium">
+            Department
+            <select name="departmentSlug" className="h-11 rounded-[10px] border border-line bg-surface px-3" defaultValue={catalog[0]?.slug}>
             {catalog.map((department) => (
               <option key={department.slug} value={department.slug}>
                 {department.name}
               </option>
             ))}
           </select>
+          </label>
           <label className="flex items-center gap-2 text-[14px]">
             <input name="queueRecipient" type="checkbox" />
             Copy them on the department queue
           </label>
           <p className="text-[13px] leading-5 text-muted">Superadmin is only for IT / Software.</p>
+          {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
           <button type="submit" disabled={pending === "person"} className="h-11 rounded-[10px] bg-action text-[14px] font-semibold text-white disabled:opacity-40">
             <PendingLabel pending={pending === "person"} idle="Add person" busy="Saving…" />
           </button>
-        </form>
-      </div> : null}
-      <div className="flex flex-col gap-3 border-b border-line px-4 py-4 min-[560px]:flex-row min-[560px]:flex-wrap min-[560px]:items-center min-[880px]:px-8">
+        </form> : null}
+        </Dialog>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-4 min-[880px]:px-8">
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
+          aria-label="Search people"
           placeholder="Search name or email"
-          className="h-11 w-full min-w-0 flex-1 rounded-[10px] border border-line bg-surface px-3 text-[14px] min-[560px]:min-w-56"
+          className="h-11 min-w-0 basis-full flex-1 min-[560px]:basis-56 rounded-[10px] border border-line bg-surface px-3 text-[14px]"
         />
         {superadmin ? (
-          <select value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)} className="h-11 w-full rounded-[10px] border border-line bg-surface px-3 text-[14px] min-[560px]:w-auto">
+          <select aria-label="Filter by department" value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)} className="h-11 w-full min-w-0 rounded-[10px] border border-line bg-surface px-3 text-[14px] min-[560px]:w-auto">
             <option value="">All departments</option>
             {catalog.map((department) => (
               <option key={department.slug} value={department.slug}>
@@ -488,7 +549,7 @@ export function Directory() {
         {people.map((person) => (
           <li key={person.id} className="border-b border-line px-4 py-3 min-[880px]:px-8">
             <div className="flex flex-col gap-1 min-[560px]:flex-row min-[560px]:flex-wrap min-[560px]:items-baseline min-[560px]:justify-between min-[560px]:gap-3">
-              <span className="min-w-0 break-words text-[15px]">
+              <span className="min-w-0 break-words text-[15px] [overflow-wrap:anywhere]">
                 {person.name}
                 {person.email ? ` · ${person.email}` : ""}
                 {!person.active ? " · Disabled" : ""}
@@ -498,8 +559,8 @@ export function Directory() {
               </span>
             </div>
             {superadmin ? (
-            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-2">
-              <button type="button" className="text-[14px] text-action" onClick={() => setEditFor(editFor === person.id ? null : person.id)}>
+            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
+              <button type="button" className="min-h-11 text-[14px] text-action" onClick={() => setEditFor(editFor === person.id ? null : person.id)}>
                 Edit
               </button>
               {person.role !== "lead" && person.role !== "admin" ? (
@@ -508,7 +569,7 @@ export function Directory() {
                   {busy === `head:${person.id}` ? "Saving…" : "Make department head"}
                 </button>
               ) : null}
-              <button type="button" className="text-[14px] text-action" onClick={() => setResetFor(resetFor === person.id ? null : person.id)}>
+              <button type="button" className="min-h-11 text-[14px] text-action" onClick={() => setResetFor(resetFor === person.id ? null : person.id)}>
                 Set a new password
               </button>
               {me?.id === person.id ? null : (
@@ -520,7 +581,7 @@ export function Directory() {
             </div>
             ) : null}
             {editFor === person.id ? (
-              <form onSubmit={(event) => savePerson(event, person)} className="mt-3 grid gap-2 min-[760px]:grid-cols-2">
+              <form onSubmit={(event) => savePerson(event, person)} className="mt-3 grid min-w-0 gap-2 min-[760px]:grid-cols-2">
                 <input name="name" required defaultValue={person.name} className="h-11 rounded-[10px] border border-line bg-surface px-3" />
                 <input name="email" type="email" required defaultValue={person.email || ""} className="h-11 rounded-[10px] border border-line bg-surface px-3" />
                 <select name="role" defaultValue={person.role} className="h-11 rounded-[10px] border border-line bg-surface px-3">
@@ -542,14 +603,16 @@ export function Directory() {
                 <button type="submit" disabled={busy === `edit:${person.id}`} className="h-11 rounded-[10px] bg-action px-4 text-[14px] font-semibold text-white disabled:opacity-40">
                   <PendingLabel pending={busy === `edit:${person.id}`} idle="Save" busy="Saving…" />
                 </button>
+                <button type="button" className="h-11 px-3 text-sm text-action" onClick={() => setEditFor(null)}>Cancel</button>
               </form>
             ) : null}
             {resetFor === person.id ? (
-              <form onSubmit={(event) => resetPassword(event, person)} className="mt-2 flex flex-col gap-2 min-[560px]:flex-row min-[560px]:flex-wrap">
-                <input name="password" required minLength={10} type="text" placeholder="New password, at least 10 characters" className="h-11 w-full min-w-0 flex-1 rounded-[10px] border border-line bg-surface px-3 min-[560px]:min-w-64" />
-                <button type="submit" disabled={busy === `password:${person.id}`} className="h-11 w-full rounded-[10px] bg-action px-4 text-[14px] font-semibold text-white disabled:opacity-40 min-[560px]:w-auto">
+              <form onSubmit={(event) => resetPassword(event, person)} className="mt-2 flex flex-wrap items-center gap-2">
+                <input aria-label="New password" name="password" required minLength={10} type="password" autoComplete="new-password" placeholder="New password, at least 10 characters" className="h-11 min-w-0 basis-full flex-1 min-[560px]:basis-64 rounded-[10px] border border-line bg-surface px-3" />
+                <button type="submit" disabled={busy === `password:${person.id}`} className="h-11 rounded-[10px] bg-action px-4 text-[14px] font-semibold text-white disabled:opacity-40">
                   <PendingLabel pending={busy === `password:${person.id}`} idle="Save password" busy="Saving…" />
                 </button>
+                <button type="button" className="h-11 px-3 text-sm text-action" onClick={() => setResetFor(null)}>Cancel</button>
               </form>
             ) : null}
           </li>

@@ -95,7 +95,7 @@ export function Thread({ id }: { id: string }) {
         <Link href="/inbox" className="inline-flex min-h-11 items-center text-[14px] text-action">
           Inbox
         </Link>
-        <h1 className="mt-1 break-words text-[20px] font-semibold leading-7 tracking-tight min-[480px]:text-[22px]">{ticket.title}</h1>
+        <h1 className="mt-1 break-words [overflow-wrap:anywhere] text-[20px] font-semibold leading-7 tracking-tight min-[480px]:text-[22px]">{ticket.title}</h1>
         <p className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-[13px] leading-5 text-ink-soft">
           <span className="font-mono">{ticket.id}</span>
           <span>
@@ -114,6 +114,7 @@ export function Thread({ id }: { id: string }) {
         <div className="mt-6 flex flex-col gap-2 min-[560px]:flex-row min-[560px]:flex-wrap min-[560px]:items-center">
           {saving ? <Spinner className="size-4 text-action" label="Saving" /> : null}
           <select
+            aria-label="Assign ticket"
             value={ticket.assignee?.id || ""}
             onChange={(event) => patch({ assigneeId: event.target.value || null }, event.target.value ? "Ticket assigned." : "Ticket unassigned.")}
             className="h-11 w-full rounded-[10px] border border-line bg-surface px-3 text-[14px] min-[560px]:w-auto"
@@ -156,7 +157,7 @@ export function Thread({ id }: { id: string }) {
       <div className="mt-8 flex flex-col gap-6">
         {ticket.messages.map((message) => (
           <section key={message.id}>
-            <p className="whitespace-pre-wrap text-[16px] leading-6">{message.body}</p>
+            <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[16px] leading-6">{message.body}</p>
             <p className="mt-2 text-[13px] text-muted">
               {message.author.name} · {label(departments, message.author.departmentSlug)} · {relativeTime(message.createdAt)}
             </p>
@@ -164,7 +165,7 @@ export function Thread({ id }: { id: string }) {
               <ul className="mt-2">
                 {message.attachments.map((file) => (
                   <li key={file.id}>
-                    <a className="text-[14px] text-action" href={`/api/v1/attachments/${file.id}`}>
+                    <a className="break-words [overflow-wrap:anywhere] text-[14px] text-action" href={`/api/v1/attachments/${file.id}`}>
                       {file.name}
                     </a>
                   </li>
@@ -193,7 +194,7 @@ export function Thread({ id }: { id: string }) {
         {receipts && receipts.length === 0 ? <p className="mt-2 text-[13px] text-muted">No email has been sent yet.</p> : null}
         <ul className="mt-2 flex flex-col gap-2">
           {receipts?.map((receipt) => (
-            <li key={receipt.id} className="font-mono text-[13px] text-ink-soft">
+            <li key={receipt.id} className="break-words font-mono text-[13px] text-ink-soft [overflow-wrap:anywhere]">
               {receipt.state} · {[...receipt.to, ...receipt.cc].join(", ") || "no recipients"}
             </li>
           ))}

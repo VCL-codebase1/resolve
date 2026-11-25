@@ -117,6 +117,7 @@ export function WorkList({
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
+            aria-label="Search tickets"
             placeholder="Search title or ticket number"
             className="mt-4 h-11 w-full rounded-[10px] border border-line bg-surface px-3 text-[14px] min-[560px]:max-w-md"
           />
@@ -150,8 +151,8 @@ export function WorkList({
                   {STATUS_LABEL[ticket.status]}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block break-words text-[15px] font-medium leading-5">{ticket.title}</span>
-                  <span className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[13px] leading-5 text-muted">
+                  <span className="block break-words [overflow-wrap:anywhere] text-[15px] font-medium leading-5">{ticket.title}</span>
+                  <span className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 [overflow-wrap:anywhere] text-[13px] leading-5 text-muted">
                     <span className="font-mono">{ticket.id}</span>
                     <span>
                       {names(departments, ticket.sourceDepartment)} → {names(departments, ticket.targetDepartment)}

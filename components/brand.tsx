@@ -2,12 +2,12 @@
 
 import { useEffect, useState } from "react";
 
-export function Logo({ className = "h-10 w-auto" }: { className?: string }) {
+export function Logo({ className = "w-40" }: { className?: string }) {
   return (
     <img
       src="/resolve-logo.png"
       alt="Resolve"
-      className={`block object-contain object-left ${className}`}
+      className={`block h-auto max-w-full object-contain object-left ${className}`}
       width={1024}
       height={195}
       decoding="async"
