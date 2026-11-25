@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ApiError, api, relativeTime, said, STATUS_LABEL, type Department, type Ticket } from "./api";
 import { useDesk } from "./provider";
+import { Spinner, SpinnerBlock } from "./spinner";
 
 const names = (departments: Department[], slug: string) => departments.find((item) => item.slug === slug)?.name || slug;
 
@@ -41,6 +42,8 @@ export function WorkList({
 }) {
   const { live, departments, me, badges, toast } = useDesk();
   const [items, setItems] = useState<Ticket[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [query, setQuery] = useState("");
@@ -70,6 +73,11 @@ export function WorkList({
       if (status) params.set("status", status);
     }
     let ignore = false;
+    if (cursor) setLoadingMore(true);
+    else {
+      setLoading(true);
+      setLoadingMore(false);
+    }
     api<{ items: Ticket[]; nextCursor: string | null }>(`${path}?${params.toString()}`)
       .then((body) => {
         if (ignore) return;
@@ -82,6 +90,11 @@ export function WorkList({
         const message = said(reason, "That list could not be loaded.");
         setError(message);
         if (reason instanceof ApiError && reason.status === 0) toast(message, "error");
+      })
+      .finally(() => {
+        if (ignore) return;
+        setLoading(false);
+        setLoadingMore(false);
       });
     return () => {
       ignore = true;
@@ -96,7 +109,9 @@ export function WorkList({
         <header className={`border-b border-line px-4 min-[880px]:px-8 ${embedded ? "py-3" : "py-5"}`}>
           <div className="flex items-baseline justify-between gap-3">
             {embedded ? <h2 className="text-[16px] font-semibold">{title}</h2> : <h1 className="text-[22px] font-semibold tracking-tight">{title}</h1>}
-            <p className="shrink-0 font-mono text-[13px] text-muted">{items ? items.length : ""}</p>
+            <p className="flex shrink-0 items-center font-mono text-[13px] text-muted">
+              {loading ? <Spinner className="size-4 text-action" label="Loading tickets" /> : items ? items.length : ""}
+            </p>
           </div>
           {embedded ? null : <p className="mt-1 max-w-[62ch] text-[15px] leading-6 text-ink-soft">{lede}</p>}
           <input
@@ -121,13 +136,13 @@ export function WorkList({
           ) : null}
         </header>
         {error ? <p className="px-4 py-6 text-[15px] text-danger min-[880px]:px-8">{error}</p> : null}
-        {items === null && !error ? <p className="px-4 py-8 text-[15px] text-muted min-[880px]:px-8">Loading…</p> : null}
+        {loading && items === null && !error ? <SpinnerBlock label="Loading tickets" /> : null}
         {items && items.length === 0 ? (
           <p className="px-4 py-10 text-[15px] leading-6 text-ink-soft min-[880px]:px-8">
             {title === "Queue" ? "Nothing is waiting on this department." : "Nothing in this list."}
           </p>
         ) : null}
-        <ul>
+        <ul className={loading && items ? "opacity-60" : ""} aria-busy={loading}>
           {items?.map((ticket) => (
             <li key={ticket.id} className="border-b border-line">
               <Link href={`/tickets/${ticket.id}`} className="flex items-start gap-3 px-4 py-3 min-[880px]:px-8 hover:bg-wash">
@@ -152,15 +167,21 @@ export function WorkList({
         </ul>
         {next ? (
           <div className="px-4 py-4 min-[880px]:px-8">
-            <button type="button" className="h-11 text-[14px] text-action" onClick={() => setMore({ key: filterKey, cursor: next })}>
-              Load more
+            <button
+              type="button"
+              disabled={loadingMore}
+              className="inline-flex h-11 items-center gap-2 text-[14px] text-action disabled:opacity-60"
+              onClick={() => setMore({ key: filterKey, cursor: next })}
+            >
+              {loadingMore ? <Spinner className="size-4 text-current" label="Loading more tickets" /> : null}
+              {loadingMore ? "Loading…" : "Load more"}
             </button>
           </div>
         ) : null}
       </section>
       <aside className="hidden border-l border-line px-5 py-6 min-[1100px]:block">
         <p className="text-[13px] font-medium text-muted">This desk</p>
-        <p className="mt-2 text-[16px] font-semibold">{me?.name}</p>
+        <p className="mt-2 text-[16px] font-semibold">{me?.name || <Spinner className="size-4 text-action" label="Loading profile" />}</p>
         <p className="mt-1 text-[14px] leading-5 text-ink-soft">{home}</p>
         <dl className="mt-6 border-t border-line text-[14px]">
           <div className="flex justify-between border-b border-line py-3">

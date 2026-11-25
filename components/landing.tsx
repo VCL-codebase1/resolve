@@ -7,6 +7,7 @@ import { DEPARTMENT_NAMES, DEPARTMENT_SLUGS } from "@/lib/labels";
 import mark from "@/public/resolve-mark.json";
 import { api, type Me } from "./api";
 import { Logo, ThemeToggle } from "./brand";
+import { Spinner } from "./spinner";
 
 const steps = [
   ["01", "Raise", "Write the request and name the department that should do the work."],
@@ -15,7 +16,7 @@ const steps = [
 ];
 
 export function Landing() {
-  const [me, setMe] = useState<Me | null>(null);
+  const [me, setMe] = useState<Me | null | undefined>(undefined);
 
   useEffect(() => {
     api<Me>("/me").then(setMe).catch(() => setMe(null));
@@ -42,9 +43,15 @@ export function Landing() {
           <Link href="/admin" className="text-[14px] text-action">
             Admin
           </Link>
-          <Link href={enter} className="inline-flex h-11 items-center bg-action px-5 text-[14px] font-semibold text-white">
-            {me ? "Open desk" : "Sign in"}
-          </Link>
+          {me === undefined ? (
+            <span className="inline-flex h-11 items-center bg-action px-5 text-[14px] font-semibold text-white">
+              <Spinner className="size-4 text-white" label="Checking your session" />
+            </span>
+          ) : (
+            <Link href={enter} className="inline-flex h-11 items-center bg-action px-5 text-[14px] font-semibold text-white">
+              {me ? "Open desk" : "Sign in"}
+            </Link>
+          )}
         </div>
       </header>
 
@@ -62,9 +69,15 @@ export function Landing() {
               Someone in one department raises a request to another. The thread, the assignment, and the email receipts stay on that ticket.
             </p>
             <div className="rise rise-4 mt-8 flex flex-wrap items-center gap-4">
-              <Link href={enter} className="inline-flex h-11 items-center bg-action px-5 text-[15px] font-semibold text-white">
-                {me ? "Continue to your desk" : "Staff sign in"}
-              </Link>
+              {me === undefined ? (
+                <span className="inline-flex h-11 items-center bg-action px-5 text-[15px] font-semibold text-white">
+                  <Spinner className="size-4 text-white" label="Checking your session" />
+                </span>
+              ) : (
+                <Link href={enter} className="inline-flex h-11 items-center bg-action px-5 text-[15px] font-semibold text-white">
+                  {me ? "Continue to your desk" : "Staff sign in"}
+                </Link>
+              )}
               <a href="#departments" className="inline-flex h-11 items-center text-[15px] text-action">
                 Nine queues
               </a>

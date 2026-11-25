@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { ApiError, api, badgeText, said, type Department, type Person } from "./api";
 import { WorkList } from "./lists";
 import { useDesk } from "./provider";
+import { PendingLabel, Spinner, SpinnerBlock } from "./spinner";
 
 type Summary = {
   raised: number;
@@ -28,20 +29,35 @@ export function Monitor() {
   const bucket = params.get("bucket") || "raised";
   const department = params.get("department") || "";
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [loading, setLoading] = useState(true);
   const [reach, setReach] = useState<{ slug: string; name: string } | null>(null);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
   const [pending, setPending] = useState(false);
 
   useEffect(() => {
-    if (me && me.role !== "admin") return;
+    if (me && me.role !== "admin") {
+      setLoading(false);
+      return;
+    }
+    let ignore = false;
+    setLoading(true);
     api<Summary>("/admin/summary")
-      .then(setSummary)
+      .then((body) => {
+        if (!ignore) setSummary(body);
+      })
       .catch((reason: unknown) => {
+        if (ignore) return;
         const message = said(reason, "The monitor could not be loaded.");
         setError(message);
         if (reason instanceof ApiError && reason.status === 0) toast(message, "error");
+      })
+      .finally(() => {
+        if (!ignore) setLoading(false);
       });
+    return () => {
+      ignore = true;
+    };
   }, [me, badges]);
 
   if (me && me.role !== "admin") {
@@ -85,11 +101,14 @@ export function Monitor() {
   return (
     <div>
       <header className="border-b border-line px-4 py-5 min-[880px]:px-8">
-        <div className="flex items-baseline justify-between gap-3">
+        <div className="flex items-center justify-between gap-3">
           <h1 className="text-[22px] font-semibold tracking-tight">Monitor</h1>
-          <Link href="/directory" className="text-[14px] text-action">
-            Directory
-          </Link>
+          <span className="flex items-center gap-3">
+            {loading && summary ? <Spinner className="size-4 text-action" label="Refreshing the monitor" /> : null}
+            <Link href="/directory" className="text-[14px] text-action">
+              Directory
+            </Link>
+          </span>
         </div>
         <p className="mt-1 max-w-[62ch] text-[15px] leading-6 text-ink-soft">
           Raised is still open. Pending is in progress or waiting. Resolved is done and not closed yet.
@@ -102,7 +121,9 @@ export function Monitor() {
               className={`lift rounded-[18px] px-4 py-3 ${bucket === key && !department ? "ring-2 ring-ink" : ""}`}
             >
               <p className="text-[13px] text-muted">{name}</p>
-              <p className="mt-2 font-mono text-[28px] font-medium leading-none tracking-tight">{counts[key]}</p>
+              <p className="mt-2 flex h-7 items-center font-mono text-[28px] font-medium leading-none tracking-tight">
+                {summary === null && loading ? <Spinner className="size-6 text-action" label={`Loading ${name}`} /> : counts[key]}
+              </p>
               <p className="mt-2 text-[12px] leading-4 text-muted">{hint}</p>
             </Link>
           ))}
@@ -110,6 +131,7 @@ export function Monitor() {
       </header>
       <section className="border-b border-line">
         <h2 className="px-4 pt-5 text-[16px] font-semibold min-[880px]:px-8">Departments</h2>
+        {summary === null && loading ? <SpinnerBlock label="Loading departments" /> : null}
         <ul className="mt-2">
           {summary?.departments.map((item) => (
             <li key={item.slug} className="flex items-center gap-3 border-t border-line px-4 py-3 min-[880px]:px-8">
@@ -137,7 +159,7 @@ export function Monitor() {
             <textarea required value={note} onChange={(event) => setNote(event.target.value)} rows={5} maxLength={2000} className="mt-4 w-full rounded-[10px] border border-line px-3 py-2" />
             <div className="mt-4 flex gap-3">
               <button type="submit" disabled={pending} className="h-11 rounded-[10px] bg-action px-4 text-[14px] font-semibold text-white disabled:opacity-40">
-                {pending ? "Sending…" : `Send to ${reach.name}`}
+                <PendingLabel pending={pending} idle={`Send to ${reach.name}`} busy="Sending…" />
               </button>
               <button type="button" className="h-11 text-[14px] text-action" onClick={() => setReach(null)}>
                 Cancel
@@ -154,12 +176,14 @@ export function Directory() {
   const { me, departments, toast } = useDesk();
   const router = useRouter();
   const [people, setPeople] = useState<Person[]>([]);
+  const [loadingPeople, setLoadingPeople] = useState(true);
   const [total, setTotal] = useState(0);
   const [catalog, setCatalog] = useState(departments);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [pending, setPending] = useState<"" | "department" | "person">("");
   const [resetFor, setResetFor] = useState<string | null>(null);
+  const [busy, setBusy] = useState("");
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
   const [departmentFilter, setDepartmentFilter] = useState("");
@@ -186,14 +210,19 @@ export function Directory() {
   }, [debounced, departmentFilter]);
 
   async function loadPeople(nextPage = page) {
-    const params = new URLSearchParams();
-    params.set("limit", String(pageSize));
-    params.set("offset", String(nextPage * pageSize));
-    if (debounced) params.set("q", debounced);
-    if (departmentFilter) params.set("department", departmentFilter);
-    const body = await api<{ items: Person[]; total: number }>(`/people?${params.toString()}`);
-    setPeople(body.items);
-    setTotal(body.total);
+    setLoadingPeople(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("limit", String(pageSize));
+      params.set("offset", String(nextPage * pageSize));
+      if (debounced) params.set("q", debounced);
+      if (departmentFilter) params.set("department", departmentFilter);
+      const body = await api<{ items: Person[]; total: number }>(`/people?${params.toString()}`);
+      setPeople(body.items);
+      setTotal(body.total);
+    } finally {
+      setLoadingPeople(false);
+    }
   }
 
   useEffect(() => {
@@ -204,6 +233,7 @@ export function Directory() {
     if (debounced) params.set("q", debounced);
     if (departmentFilter) params.set("department", departmentFilter);
     let ignore = false;
+    setLoadingPeople(true);
     api<{ items: Person[]; total: number }>(`/people?${params.toString()}`)
       .then((body) => {
         if (ignore) return;
@@ -215,6 +245,9 @@ export function Directory() {
         const message = said(reason, "The directory could not be loaded.");
         setError(message);
         if (reason instanceof ApiError && reason.status === 0) toast(message, "error");
+      })
+      .finally(() => {
+        if (!ignore) setLoadingPeople(false);
       });
     return () => {
       ignore = true;
@@ -280,6 +313,7 @@ export function Directory() {
 
   async function makeHead(person: Person) {
     setError("");
+    setBusy(`head:${person.id}`);
     try {
       await api(`/people/${person.id}`, {
         method: "PATCH",
@@ -291,6 +325,8 @@ export function Directory() {
       const message = said(reason, "That person was not made head.");
       setError(message);
       toast(message, "error");
+    } finally {
+      setBusy("");
     }
   }
 
@@ -298,6 +334,7 @@ export function Directory() {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     setError("");
+    setBusy(`password:${person.id}`);
     try {
       await api(`/people/${person.id}`, {
         method: "PATCH",
@@ -309,6 +346,8 @@ export function Directory() {
       const message = said(reason, "The password was not changed.");
       setError(message);
       toast(message, "error");
+    } finally {
+      setBusy("");
     }
   }
 
@@ -329,7 +368,7 @@ export function Directory() {
           <h2 className="text-[16px] font-semibold">New department</h2>
           <input name="name" required placeholder="Department name" className="h-11 rounded-[10px] border border-line bg-surface px-3" />
           <button type="submit" disabled={pending === "department"} className="h-11 rounded-[10px] bg-action text-[14px] font-semibold text-white disabled:opacity-40">
-            {pending === "department" ? "Saving…" : "Add department"}
+            <PendingLabel pending={pending === "department"} idle="Add department" busy="Saving…" />
           </button>
         </form>
         <form onSubmit={addPerson} className="lift grid gap-3 rounded-[22px] p-4">
@@ -354,7 +393,7 @@ export function Directory() {
             Copy them on the department queue
           </label>
           <button type="submit" disabled={pending === "person"} className="h-11 rounded-[10px] bg-action text-[14px] font-semibold text-white disabled:opacity-40">
-            {pending === "person" ? "Saving…" : "Add person"}
+            <PendingLabel pending={pending === "person"} idle="Add person" busy="Saving…" />
           </button>
         </form>
       </div>
@@ -373,11 +412,12 @@ export function Directory() {
             </option>
           ))}
         </select>
-        <p className="text-[13px] text-muted">{total === 1 ? "1 person" : `${total} people`}</p>
+        {loadingPeople ? <Spinner className="size-4 text-action" label="Loading people" /> : <p className="text-[13px] text-muted">{total === 1 ? "1 person" : `${total} people`}</p>}
       </div>
       {notice ? <p className="px-4 pt-4 text-[14px] text-action min-[880px]:px-8">{notice}</p> : null}
       {error ? <p className="px-4 pt-4 text-[14px] text-danger min-[880px]:px-8">{error}</p> : null}
-      <ul>
+      {loadingPeople && people.length === 0 ? <SpinnerBlock label="Loading people" /> : null}
+      <ul className={loadingPeople && people.length > 0 ? "opacity-60" : ""} aria-busy={loadingPeople}>
         {people.map((person) => (
           <li key={person.id} className="border-b border-line px-4 py-3 min-[880px]:px-8">
             <div className="flex flex-wrap items-baseline justify-between gap-3">
@@ -392,8 +432,9 @@ export function Directory() {
             </div>
             <div className="mt-2 flex flex-wrap gap-3">
               {person.role !== "lead" && person.role !== "admin" ? (
-                <button type="button" className="text-[14px] text-action" onClick={() => makeHead(person)}>
-                  Make department head
+                <button type="button" disabled={busy === `head:${person.id}`} className="inline-flex items-center gap-2 text-[14px] text-action disabled:opacity-60" onClick={() => makeHead(person)}>
+                  {busy === `head:${person.id}` ? <Spinner className="size-4 text-current" label="Saving" /> : null}
+                  {busy === `head:${person.id}` ? "Saving…" : "Make department head"}
                 </button>
               ) : null}
               <button type="button" className="text-[14px] text-action" onClick={() => setResetFor(resetFor === person.id ? null : person.id)}>
@@ -403,15 +444,15 @@ export function Directory() {
             {resetFor === person.id ? (
               <form onSubmit={(event) => resetPassword(event, person)} className="mt-2 flex flex-wrap gap-2">
                 <input name="password" required minLength={10} type="text" placeholder="New password, at least 10 characters" className="h-11 min-w-64 flex-1 rounded-[10px] border border-line bg-surface px-3" />
-                <button type="submit" className="h-11 rounded-[10px] bg-action px-4 text-[14px] font-semibold text-white">
-                  Save password
+                <button type="submit" disabled={busy === `password:${person.id}`} className="h-11 rounded-[10px] bg-action px-4 text-[14px] font-semibold text-white disabled:opacity-40">
+                  <PendingLabel pending={busy === `password:${person.id}`} idle="Save password" busy="Saving…" />
                 </button>
               </form>
             ) : null}
           </li>
         ))}
       </ul>
-      {people.length === 0 ? <p className="px-4 py-8 text-[15px] text-ink-soft min-[880px]:px-8">No one matches this search.</p> : null}
+      {!loadingPeople && people.length === 0 ? <p className="px-4 py-8 text-[15px] text-ink-soft min-[880px]:px-8">No one matches this search.</p> : null}
       <div className="flex items-center justify-between px-4 py-4 min-[880px]:px-8">
         <button type="button" className="h-11 text-[14px] text-action disabled:opacity-40" disabled={page === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}>
           Previous

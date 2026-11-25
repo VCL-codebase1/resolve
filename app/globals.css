@@ -185,6 +185,16 @@ a[class*="bg-action"] {
   animation: live 2.4s ease-in-out infinite;
 }
 
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.spinner {
+  animation: spin 0.7s linear infinite;
+}
+
 .dark {
   --color-ink: #e7eef8;
   --color-ink-soft: #c3d0e2;

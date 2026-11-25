@@ -7,6 +7,7 @@ import { DeskProvider, useDesk } from "./provider";
 import { api, badgeText } from "./api";
 import { Composer } from "./composer";
 import { Logo, ThemeToggle } from "./brand";
+import { Spinner } from "./spinner";
 import { ToastList } from "./toasts";
 
 function Tab({ href, label, count, alert }: { href: string; label: string; count: number; alert?: boolean }) {
@@ -48,7 +49,7 @@ function Chrome({ children }: { children: React.ReactNode }) {
   const roleName = me?.role ?? knownRole;
   const isAdmin = roleName === "admin";
   const monitor = isAdmin ? (badges.monitor?.raised ?? 0) + (badges.monitor?.pending ?? 0) : 0;
-  const role = roleName === "admin" ? "Admin" : roleName === "lead" ? "Head" : "Staff";
+  const role = roleName === "admin" ? "Admin" : roleName === "lead" ? "Head" : roleName ? "Staff" : "";
 
   useEffect(() => {
     setKnownRole(sessionStorage.getItem("desk-role"));
@@ -78,7 +79,7 @@ function Chrome({ children }: { children: React.ReactNode }) {
         </Link>
         <button type="button" className="mx-1 mt-4 flex items-center gap-3 rounded-[14px] px-2 py-2 text-left" onClick={() => setProfile(true)}>
           <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-wash text-[13px] font-semibold text-action">
-            {initials(me?.name || "")}
+            {me ? initials(me.name) : <Spinner className="size-4 text-action" label="Loading profile" />}
           </span>
           <span className="min-w-0">
             <span className="block truncate text-[14px] font-semibold">{me?.name}</span>
@@ -107,8 +108,14 @@ function Chrome({ children }: { children: React.ReactNode }) {
           <Link href={isAdmin ? "/monitor" : "/inbox"} className="min-[880px]:hidden">
             <Logo className="h-10 w-auto" />
           </Link>
-          <p className="hidden min-w-0 truncate text-[14px] text-muted min-[880px]:block">
-            {department} · {role}
+          <p className="hidden min-w-0 items-center truncate text-[14px] text-muted min-[880px]:flex">
+            {me ? (
+              <>
+                {department} · {role}
+              </>
+            ) : (
+              <Spinner className="size-4 text-muted" label="Loading your desk" />
+            )}
           </p>
           <div className="ml-auto flex shrink-0 items-center gap-2">
             <span className="min-[880px]:hidden">
@@ -120,7 +127,7 @@ function Chrome({ children }: { children: React.ReactNode }) {
               className="flex size-10 items-center justify-center rounded-full bg-wash text-[13px] font-semibold text-action"
               onClick={() => setProfile(true)}
             >
-              {initials(me?.name || "")}
+              {me ? initials(me.name) : <Spinner className="size-4 text-action" label="Loading profile" />}
             </button>
             <button type="button" className="h-10 rounded-full bg-action px-4 text-[14px] font-semibold text-white" onClick={() => setComposer(true)}>
               New ticket

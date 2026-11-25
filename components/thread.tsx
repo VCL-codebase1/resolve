@@ -4,17 +4,19 @@ import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { api, relativeTime, said, STATUS_LABEL, type Department, type Person, type Receipt, type TicketDetail } from "./api";
 import { useDesk } from "./provider";
+import { PendingLabel, Spinner, SpinnerBlock } from "./spinner";
 
 const label = (departments: Department[], slug: string) => departments.find((item) => item.slug === slug)?.name || slug;
 
 export function Thread({ id }: { id: string }) {
   const { live, departments, me, refresh, toast } = useDesk();
   const [ticket, setTicket] = useState<TicketDetail | null>(null);
-  const [receipts, setReceipts] = useState<Receipt[]>([]);
+  const [receipts, setReceipts] = useState<Receipt[] | null>(null);
   const [people, setPeople] = useState<Person[]>([]);
   const [error, setError] = useState("");
   const [reply, setReply] = useState("");
   const [pending, setPending] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     api<TicketDetail>(`/tickets/${id}`)
@@ -34,14 +36,15 @@ export function Thread({ id }: { id: string }) {
       .catch(() => setReceipts([]));
   }, [id, live]);
 
-  if (error) return <p className="px-5 py-8 text-[16px] text-danger">{error}</p>;
-  if (!ticket) return <div className="mx-5 mt-6 h-px bg-line" />;
+  if (!ticket && error) return <p className="px-5 py-8 text-[16px] text-danger">{error}</p>;
+  if (!ticket) return <SpinnerBlock label="Loading ticket" />;
 
   const manage = me?.role === "admin" || (me?.role === "lead" && me.departmentSlug === ticket.targetDepartment);
   const closed = ticket.status === "closed";
 
   async function patch(body: Record<string, unknown>, done: string) {
     setError("");
+    setSaving(true);
     try {
       const next = await api<TicketDetail>(`/tickets/${id}`, { method: "PATCH", body: JSON.stringify(body) });
       setTicket(next);
@@ -51,6 +54,8 @@ export function Thread({ id }: { id: string }) {
       const message = said(reason, "That change did not save.");
       setError(message);
       toast(message, "error");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -106,7 +111,8 @@ export function Thread({ id }: { id: string }) {
         </p>
       ) : null}
       {manage && !closed ? (
-        <div className="mt-6 flex flex-wrap gap-2">
+        <div className="mt-6 flex flex-wrap items-center gap-2">
+          {saving ? <Spinner className="size-4 text-action" label="Saving" /> : null}
           <select
             value={ticket.assignee?.id || ""}
             onChange={(event) => patch({ assigneeId: event.target.value || null }, event.target.value ? "Ticket assigned." : "Ticket unassigned.")}
@@ -176,16 +182,17 @@ export function Thread({ id }: { id: string }) {
           <textarea id="reply" name="body" required value={reply} onChange={(event) => setReply(event.target.value)} rows={4} className="rounded-[10px] border border-line bg-surface px-3 py-2" />
           <input name="file" type="file" accept="image/png,image/jpeg,image/webp,application/pdf" className="max-w-full text-[14px]" />
           <button type="submit" disabled={pending} className="h-11 self-start rounded-[10px] bg-action px-4 text-[14px] font-semibold text-white disabled:opacity-40">
-            {pending ? "Sending…" : "Reply"}
+            <PendingLabel pending={pending} idle="Reply" busy="Sending…" />
           </button>
         </form>
       )}
       {error ? <p className="mt-4 text-[14px] text-danger">{error}</p> : null}
       <section className="mt-10 border-t border-line pt-4 pb-8">
         <h2 className="text-[14px] font-semibold">Receipts</h2>
-        {receipts.length === 0 ? <p className="mt-2 text-[13px] text-muted">No email has been sent yet.</p> : null}
+        {receipts === null ? <div className="mt-3"><Spinner className="size-4 text-action" label="Loading receipts" /></div> : null}
+        {receipts && receipts.length === 0 ? <p className="mt-2 text-[13px] text-muted">No email has been sent yet.</p> : null}
         <ul className="mt-2 flex flex-col gap-2">
-          {receipts.map((receipt) => (
+          {receipts?.map((receipt) => (
             <li key={receipt.id} className="font-mono text-[13px] text-ink-soft">
               {receipt.state} · {[...receipt.to, ...receipt.cc].join(", ") || "no recipients"}
             </li>

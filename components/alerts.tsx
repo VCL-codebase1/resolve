@@ -4,10 +4,13 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { ApiError, api, relativeTime, said, type Notice } from "./api";
 import { useDesk } from "./provider";
+import { Spinner, SpinnerBlock } from "./spinner";
 
 export function Alerts() {
   const { live, refresh, toast } = useDesk();
   const [items, setItems] = useState<Notice[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
   const [more, setMore] = useState<{ key: string; cursor: string } | null>(null);
@@ -26,6 +29,11 @@ export function Alerts() {
     if (debounced) params.set("q", debounced);
     if (cursor) params.set("cursor", cursor);
     let ignore = false;
+    if (cursor) setLoadingMore(true);
+    else {
+      setLoading(true);
+      setLoadingMore(false);
+    }
     api<{ items: Notice[]; nextCursor: string | null }>(`/notifications?${params.toString()}`)
       .then((body) => {
         if (ignore) return;
@@ -36,6 +44,11 @@ export function Alerts() {
         if (ignore) return;
         if (!cursor) setItems([]);
         if (reason instanceof ApiError && reason.status === 0) toast(said(reason, "Alerts could not be loaded."), "error");
+      })
+      .finally(() => {
+        if (ignore) return;
+        setLoading(false);
+        setLoadingMore(false);
       });
     return () => {
       ignore = true;
@@ -60,7 +73,9 @@ export function Alerts() {
           <h1 className="text-[22px] font-semibold tracking-tight">Alerts</h1>
           <p className="mt-1 text-[15px] text-ink-soft">Live notices for tickets you follow.</p>
         </div>
-        <button
+        <div className="flex items-center gap-3">
+          {loading ? <Spinner className="size-4 text-action" label="Loading alerts" /> : null}
+          <button
           type="button"
           className="h-11 text-[14px] text-action"
           onClick={() => {
@@ -74,6 +89,7 @@ export function Alerts() {
         >
           Mark all read
         </button>
+        </div>
       </div>
       <div className="border-b border-line px-4 py-3 min-[880px]:px-8">
         <input
@@ -83,9 +99,9 @@ export function Alerts() {
           className="h-11 w-full max-w-md rounded-[10px] border border-line bg-surface px-3 text-[14px]"
         />
       </div>
-      {items === null ? <p className="px-5 py-8 text-[15px] text-muted">Loading…</p> : null}
-      {items && items.length === 0 ? <p className="px-5 py-8 text-[16px]">No alerts.</p> : null}
-      <ul>
+      {loading && items === null ? <SpinnerBlock label="Loading alerts" /> : null}
+      {!loading && items && items.length === 0 ? <p className="px-5 py-8 text-[16px]">No alerts.</p> : null}
+      <ul className={loading && items ? "opacity-60" : ""} aria-busy={loading}>
         {items?.map((item) => (
           <li key={item.id} className="border-b border-line">
             <Link href={item.ticketId ? `/tickets/${item.ticketId}` : "/queue"} onClick={() => void open(item)} className="block px-4 py-4 min-[880px]:px-8">
@@ -97,8 +113,14 @@ export function Alerts() {
       </ul>
       {next ? (
         <div className="px-4 py-4 min-[880px]:px-8">
-          <button type="button" className="h-11 text-[14px] text-action" onClick={() => setMore({ key: filterKey, cursor: next })}>
-            Load more
+          <button
+            type="button"
+            disabled={loadingMore}
+            className="inline-flex h-11 items-center gap-2 text-[14px] text-action disabled:opacity-60"
+            onClick={() => setMore({ key: filterKey, cursor: next })}
+          >
+            {loadingMore ? <Spinner className="size-4 text-current" label="Loading more alerts" /> : null}
+            {loadingMore ? "Loading…" : "Load more"}
           </button>
         </div>
       ) : null}

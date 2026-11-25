@@ -7,6 +7,7 @@ import { api, said, type Me } from "./api";
 import { Logo, ThemeToggle } from "./brand";
 import { useDesk } from "./provider";
 import { chime, unlockSound } from "./sound";
+import { PendingLabel } from "./spinner";
 import { ToastList, type ToastNote } from "./toasts";
 
 export function Composer() {
@@ -101,7 +102,7 @@ export function Composer() {
           </label>
           {error ? <p className="text-[14px] text-danger">{error}</p> : null}
           <button type="submit" disabled={pending} className="h-11 rounded-[10px] bg-action text-[14px] font-semibold text-white disabled:opacity-40">
-            {pending ? "Raising…" : "Raise ticket"}
+            <PendingLabel pending={pending} idle="Raise ticket" busy="Raising…" />
           </button>
         </div>
       </form>
@@ -186,7 +187,7 @@ export function LoginForm({ admin = false }: { admin?: boolean }) {
         </label>
         {error ? <p className="mt-4 text-[14px] text-danger">{error}</p> : null}
         <button type="submit" disabled={pending} className="mt-6 h-11 w-full rounded-[10px] bg-action text-[14px] font-semibold text-white disabled:opacity-40">
-          {pending ? "Signing in…" : "Sign in"}
+          <PendingLabel pending={pending} idle="Sign in" busy="Signing in…" />
         </button>
       </form>
     </main>
