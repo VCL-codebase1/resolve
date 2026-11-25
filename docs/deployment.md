@@ -31,6 +31,8 @@ There is no cash ledger and no finance dashboard. Account / Finance is one of th
 
 Copy `.env.example` to `.env` when you point it at a real server. Set `APP_ORIGIN` to the public URL so email links are right. `SMTP_HOST` and `EMAIL_FROM` turn on real mail through Nodemailer. Without `SMTP_HOST`, receipts are still saved and printed in the server log.
 
+In Vercel, enter `SUPABASE_DB_URL` in the Name field and the connection URI beginning with `postgresql://` in the Value field. Save it for Production and redeploy to apply the change.
+
 Reply-by-email stays off. `POST /api/v1/inbound/email` returns 501.
 
 ## Seeded staff
