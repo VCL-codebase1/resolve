@@ -16,7 +16,7 @@ function tone(freq: number, at: number, dur: number, type: OscillatorType) {
   osc.type = type;
   osc.frequency.value = freq;
   gain.gain.setValueAtTime(0.0001, at);
-  gain.gain.exponentialRampToValueAtTime(0.12, at + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.5, at + 0.02);
   gain.gain.exponentialRampToValueAtTime(0.0001, at + dur);
   osc.connect(gain);
   gain.connect(ctx.destination);

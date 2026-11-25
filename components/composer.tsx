@@ -67,11 +67,11 @@ export function Composer() {
         <div className="flex flex-col gap-4 px-5 py-5">
           <label className="flex flex-col gap-1 text-[14px] font-medium">
             Title
-            <input name="title" required maxLength={120} className="h-11 rounded-[10px] border border-line bg-white px-3 font-normal outline-none" />
+            <input name="title" required maxLength={120} className="h-11 rounded-[10px] border border-line bg-surface px-3 font-normal outline-none" />
           </label>
           <label className="flex flex-col gap-1 text-[14px] font-medium">
             Department
-            <select name="targetDepartment" required className="h-11 rounded-[10px] border border-line bg-white px-3 font-normal" defaultValue="">
+            <select name="targetDepartment" required className="h-11 rounded-[10px] border border-line bg-surface px-3 font-normal" defaultValue="">
               <option value="" disabled>
                 Choose
               </option>
@@ -84,7 +84,7 @@ export function Composer() {
           </label>
           <label className="flex flex-col gap-1 text-[14px] font-medium">
             Priority
-            <select name="priority" className="h-11 rounded-[10px] border border-line bg-white px-3 font-normal" defaultValue="normal">
+            <select name="priority" className="h-11 rounded-[10px] border border-line bg-surface px-3 font-normal" defaultValue="normal">
               <option value="low">Low</option>
               <option value="normal">Normal</option>
               <option value="high">High</option>
@@ -93,7 +93,7 @@ export function Composer() {
           </label>
           <label className="flex flex-col gap-1 text-[14px] font-medium">
             Note
-            <textarea name="body" required maxLength={8000} rows={5} className="rounded-[10px] border border-line bg-white px-3 py-2 font-normal" />
+            <textarea name="body" required maxLength={8000} rows={5} className="rounded-[10px] border border-line bg-surface px-3 py-2 font-normal" />
           </label>
           <label className="flex flex-col gap-1 text-[14px] font-medium">
             File
@@ -141,15 +141,15 @@ export function LoginForm({ admin = false }: { admin?: boolean }) {
         method: "POST",
         body: JSON.stringify({ email: form.get("email"), password: form.get("password") }),
       });
-      const wrongDoor = admin ? person.role !== "admin" : person.role === "admin";
-      if (wrongDoor) {
+      if (admin && person.role !== "admin") {
         await api("/auth/logout", { method: "POST" });
-        const message = admin ? "This page is for admins. Staff use the main sign-in." : "Admins sign in at the admin page.";
+        const message = "This page is for admins. Staff use the main sign-in.";
         setError(message);
         toast(message);
         return;
       }
-      router.replace(admin ? "/monitor" : "/inbox");
+      sessionStorage.setItem("desk-role", person.role);
+      router.replace(person.role === "admin" ? "/monitor" : "/inbox");
     } catch (reason) {
       const message = said(reason, "Email or password is wrong.");
       setError(message);
@@ -178,11 +178,11 @@ export function LoginForm({ admin = false }: { admin?: boolean }) {
         </p>
         <label className="mt-8 flex flex-col gap-1 text-[14px] font-medium">
           Email
-          <input name="email" type="email" autoComplete="username" required className="h-11 rounded-[10px] border border-line bg-white px-3 font-normal" />
+          <input name="email" type="email" autoComplete="username" required className="h-11 rounded-[10px] border border-line bg-surface px-3 font-normal" />
         </label>
         <label className="mt-4 flex flex-col gap-1 text-[14px] font-medium">
           Password
-          <input name="password" type="password" autoComplete="current-password" required className="h-11 rounded-[10px] border border-line bg-white px-3 font-normal" />
+          <input name="password" type="password" autoComplete="current-password" required className="h-11 rounded-[10px] border border-line bg-surface px-3 font-normal" />
         </label>
         {error ? <p className="mt-4 text-[14px] text-danger">{error}</p> : null}
         <button type="submit" disabled={pending} className="mt-6 h-11 w-full rounded-[10px] bg-action text-[14px] font-semibold text-white disabled:opacity-40">

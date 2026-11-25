@@ -80,7 +80,7 @@ export function Alerts() {
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search alerts"
-          className="h-11 w-full max-w-md rounded-[10px] border border-line bg-white px-3 text-[14px]"
+          className="h-11 w-full max-w-md rounded-[10px] border border-line bg-surface px-3 text-[14px]"
         />
       </div>
       {items === null ? <p className="px-5 py-8 text-[15px] text-muted">Loading…</p> : null}

@@ -86,7 +86,7 @@ export function Thread({ id }: { id: string }) {
 
   return (
     <article>
-      <header className="sticky top-0 z-10 border-b border-line bg-white/80 px-4 py-4 backdrop-blur min-[880px]:px-8">
+      <header className="sticky top-0 z-10 border-b border-line bg-surface/95 px-4 py-4 backdrop-blur min-[880px]:px-8">
         <Link href="/inbox" className="text-[14px] text-action">
           Inbox
         </Link>
@@ -110,7 +110,7 @@ export function Thread({ id }: { id: string }) {
           <select
             value={ticket.assignee?.id || ""}
             onChange={(event) => patch({ assigneeId: event.target.value || null }, event.target.value ? "Ticket assigned." : "Ticket unassigned.")}
-            className="h-11 rounded-[10px] border border-line bg-white px-3 text-[14px]"
+            className="h-11 rounded-[10px] border border-line bg-surface px-3 text-[14px]"
           >
             <option value="">Unassigned</option>
             {people.map((person) => (
@@ -173,7 +173,7 @@ export function Thread({ id }: { id: string }) {
           <label className="text-[14px] font-medium" htmlFor="reply">
             Reply
           </label>
-          <textarea id="reply" name="body" required value={reply} onChange={(event) => setReply(event.target.value)} rows={4} className="rounded-[10px] border border-line bg-white px-3 py-2" />
+          <textarea id="reply" name="body" required value={reply} onChange={(event) => setReply(event.target.value)} rows={4} className="rounded-[10px] border border-line bg-surface px-3 py-2" />
           <input name="file" type="file" accept="image/png,image/jpeg,image/webp,application/pdf" className="max-w-full text-[14px]" />
           <button type="submit" disabled={pending} className="h-11 self-start rounded-[10px] bg-action px-4 text-[14px] font-semibold text-white disabled:opacity-40">
             {pending ? "Sending…" : "Reply"}

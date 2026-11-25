@@ -103,7 +103,7 @@ export function WorkList({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search title or ticket number"
-            className="mt-4 h-11 w-full max-w-md rounded-[10px] border border-line bg-white px-3 text-[14px]"
+            className="mt-4 h-11 w-full max-w-md rounded-[10px] border border-line bg-surface px-3 text-[14px]"
           />
           {!bucket ? (
             <div className="-mx-4 mt-4 flex gap-2 overflow-x-auto px-4 pb-1 min-[880px]:mx-0 min-[880px]:px-0">
@@ -112,7 +112,7 @@ export function WorkList({
                   key={value || "all"}
                   type="button"
                   onClick={() => setStatus(value)}
-                  className={`h-9 shrink-0 rounded-full px-3 text-[13px] ${status === value ? "bg-ink text-white" : "border border-line text-ink-soft"}`}
+                  className={`h-9 shrink-0 rounded-full px-3 text-[13px] ${status === value ? "bg-action text-white" : "border border-line text-ink-soft"}`}
                 >
                   {label}
                 </button>

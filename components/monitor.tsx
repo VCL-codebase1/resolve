@@ -327,22 +327,22 @@ export function Directory() {
       <div className="grid gap-6 border-b border-line px-4 py-5 min-[880px]:grid-cols-2 min-[880px]:px-8">
         <form onSubmit={addDepartment} className="lift grid gap-3 rounded-[22px] p-4">
           <h2 className="text-[16px] font-semibold">New department</h2>
-          <input name="name" required placeholder="Department name" className="h-11 rounded-[10px] border border-line bg-white px-3" />
+          <input name="name" required placeholder="Department name" className="h-11 rounded-[10px] border border-line bg-surface px-3" />
           <button type="submit" disabled={pending === "department"} className="h-11 rounded-[10px] bg-action text-[14px] font-semibold text-white disabled:opacity-40">
             {pending === "department" ? "Saving…" : "Add department"}
           </button>
         </form>
         <form onSubmit={addPerson} className="lift grid gap-3 rounded-[22px] p-4">
           <h2 className="text-[16px] font-semibold">Add a person</h2>
-          <input name="name" required placeholder="Name" className="h-11 rounded-[10px] border border-line bg-white px-3" />
-          <input name="email" type="email" required placeholder="Work email" className="h-11 rounded-[10px] border border-line bg-white px-3" />
-          <input name="password" required minLength={10} placeholder="Password, at least 10 characters" className="h-11 rounded-[10px] border border-line bg-white px-3" />
-          <select name="role" className="h-11 rounded-[10px] border border-line bg-white px-3" defaultValue="member">
+          <input name="name" required placeholder="Name" className="h-11 rounded-[10px] border border-line bg-surface px-3" />
+          <input name="email" type="email" required placeholder="Work email" className="h-11 rounded-[10px] border border-line bg-surface px-3" />
+          <input name="password" required minLength={10} placeholder="Password, at least 10 characters" className="h-11 rounded-[10px] border border-line bg-surface px-3" />
+          <select name="role" className="h-11 rounded-[10px] border border-line bg-surface px-3" defaultValue="member">
             <option value="member">Member</option>
             <option value="lead">Department head</option>
             <option value="admin">Admin</option>
           </select>
-          <select name="departmentSlug" className="h-11 rounded-[10px] border border-line bg-white px-3" defaultValue={catalog[0]?.slug}>
+          <select name="departmentSlug" className="h-11 rounded-[10px] border border-line bg-surface px-3" defaultValue={catalog[0]?.slug}>
             {catalog.map((department) => (
               <option key={department.slug} value={department.slug}>
                 {department.name}
@@ -363,9 +363,9 @@ export function Directory() {
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search name or email"
-          className="h-11 min-w-56 flex-1 rounded-[10px] border border-line bg-white px-3 text-[14px]"
+          className="h-11 min-w-56 flex-1 rounded-[10px] border border-line bg-surface px-3 text-[14px]"
         />
-        <select value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)} className="h-11 rounded-[10px] border border-line bg-white px-3 text-[14px]">
+        <select value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)} className="h-11 rounded-[10px] border border-line bg-surface px-3 text-[14px]">
           <option value="">All departments</option>
           {catalog.map((department) => (
             <option key={department.slug} value={department.slug}>
@@ -402,7 +402,7 @@ export function Directory() {
             </div>
             {resetFor === person.id ? (
               <form onSubmit={(event) => resetPassword(event, person)} className="mt-2 flex flex-wrap gap-2">
-                <input name="password" required minLength={10} type="text" placeholder="New password, at least 10 characters" className="h-11 min-w-64 flex-1 rounded-[10px] border border-line bg-white px-3" />
+                <input name="password" required minLength={10} type="text" placeholder="New password, at least 10 characters" className="h-11 min-w-64 flex-1 rounded-[10px] border border-line bg-surface px-3" />
                 <button type="submit" className="h-11 rounded-[10px] bg-action px-4 text-[14px] font-semibold text-white">
                   Save password
                 </button>

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { DeskProvider, useDesk } from "./provider";
 import { api, badgeText } from "./api";
@@ -13,8 +13,8 @@ function Tab({ href, label, count, alert }: { href: string; label: string; count
   const pathname = usePathname();
   const active = pathname === href || pathname.startsWith(`${href}/`) || (href === "/inbox" && pathname.startsWith("/tickets"));
   return (
-    <Link href={href} className={`flex h-full items-center justify-center gap-1 rounded-full px-1 text-[12px] ${active ? "bg-white/80 font-semibold text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]" : "text-muted"}`}>
-      <span>{label}</span>
+    <Link href={href} className={`flex h-full min-w-0 items-center justify-center gap-1 rounded-full px-1 text-[11px] ${active ? "bg-wash font-semibold text-ink" : "text-muted"}`}>
+      <span className="truncate">{label}</span>
       {count > 0 ? <span className={alert ? "badge badge-alert" : "badge"}>{badgeText(count)}</span> : null}
     </Link>
   );
@@ -26,7 +26,7 @@ function NavLink({ href, label, count, alert }: { href: string; label: string; c
   return (
     <Link
       href={href}
-      className={`flex min-h-11 items-center justify-between gap-3 rounded-[14px] px-3 text-[14px] ${active ? "bg-white/75 font-semibold text-ink shadow-[inset_0_1px_0_rgba(255,255,255,0.95),0_4px_12px_rgba(8,22,52,0.05)]" : "text-ink-soft"}`}
+      className={`flex min-h-11 items-center justify-between gap-3 rounded-[14px] px-3 text-[14px] ${active ? "bg-wash font-semibold text-ink" : "text-ink-soft"}`}
     >
       <span>{label}</span>
       {count > 0 ? <span className={alert ? "badge badge-alert" : "badge"}>{badgeText(count)}</span> : null}
@@ -43,13 +43,27 @@ function Chrome({ children }: { children: React.ReactNode }) {
   const { me, badges, departments, muted, setMuted, setComposer, notes, dismiss, toast } = useDesk();
   const router = useRouter();
   const [profile, setProfile] = useState(false);
+  const [knownRole, setKnownRole] = useState<string | null>(null);
   const department = departments.find((item) => item.slug === me?.departmentSlug)?.name;
-  const monitor = me?.role === "admin" ? (badges.monitor?.raised ?? 0) + (badges.monitor?.pending ?? 0) : 0;
-  const role = me?.role === "admin" ? "Admin" : me?.role === "lead" ? "Head" : "Staff";
+  const roleName = me?.role ?? knownRole;
+  const isAdmin = roleName === "admin";
+  const monitor = isAdmin ? (badges.monitor?.raised ?? 0) + (badges.monitor?.pending ?? 0) : 0;
+  const role = roleName === "admin" ? "Admin" : roleName === "lead" ? "Head" : "Staff";
+
+  useEffect(() => {
+    setKnownRole(sessionStorage.getItem("desk-role"));
+  }, []);
+
+  useEffect(() => {
+    if (!me) return;
+    sessionStorage.setItem("desk-role", me.role);
+    setKnownRole(me.role);
+  }, [me]);
 
   async function signOut() {
     try {
       await api("/auth/logout", { method: "POST" });
+      sessionStorage.removeItem("desk-role");
       router.replace("/");
     } catch (reason) {
       toast(reason instanceof Error ? reason.message : "Could not sign out.", "error");
@@ -59,7 +73,7 @@ function Chrome({ children }: { children: React.ReactNode }) {
   return (
     <div className="stage min-h-dvh p-0 text-ink min-[880px]:flex min-[880px]:gap-3 min-[880px]:p-3">
       <aside className="glass sticky top-3 hidden h-[calc(100dvh-1.5rem)] w-[248px] shrink-0 flex-col rounded-[22px] px-3 py-4 min-[880px]:flex">
-        <Link href="/inbox" className="px-1 py-1">
+        <Link href={isAdmin ? "/monitor" : "/inbox"} className="px-1 py-1">
           <Logo className="h-11 w-auto" />
         </Link>
         <button type="button" className="mx-1 mt-4 flex items-center gap-3 rounded-[14px] px-2 py-2 text-left" onClick={() => setProfile(true)}>
@@ -75,8 +89,8 @@ function Chrome({ children }: { children: React.ReactNode }) {
           <NavLink href="/inbox" label="Inbox" count={badges.inbox} />
           <NavLink href="/queue" label="Queue" count={badges.queue} />
           <NavLink href="/alerts" label="Alerts" count={badges.alerts} alert />
-          {me?.role === "admin" ? <NavLink href="/monitor" label="Monitor" count={monitor} /> : null}
-          {me?.role === "admin" ? <NavLink href="/directory" label="Directory" count={0} /> : null}
+          {isAdmin ? <NavLink href="/monitor" label="Monitor" count={monitor} /> : null}
+          {isAdmin ? <NavLink href="/directory" label="Directory" count={0} /> : null}
         </nav>
         <div className="mt-auto flex flex-col gap-1">
           <ThemeToggle />
@@ -90,7 +104,9 @@ function Chrome({ children }: { children: React.ReactNode }) {
       </aside>
       <div className="flex min-w-0 flex-1 flex-col gap-0 min-[880px]:gap-3">
         <header className="glass sticky top-0 z-30 flex h-16 w-full shrink-0 items-center gap-3 rounded-none border-b border-white/40 px-5 min-[880px]:h-[4.5rem] min-[880px]:rounded-[18px] min-[880px]:border-0 min-[880px]:px-5">
-          <Logo className="h-10 w-auto min-[880px]:hidden" />
+          <Link href={isAdmin ? "/monitor" : "/inbox"} className="min-[880px]:hidden">
+            <Logo className="h-10 w-auto" />
+          </Link>
           <p className="hidden min-w-0 truncate text-[14px] text-muted min-[880px]:block">
             {department} · {role}
           </p>
@@ -117,11 +133,12 @@ function Chrome({ children }: { children: React.ReactNode }) {
         </div>
       </div>
       <nav className="glass fixed inset-x-3 bottom-3 z-30 rounded-[22px] p-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] min-[880px]:hidden">
-        <div className={`grid h-12 ${me?.role === "admin" ? "grid-cols-4" : "grid-cols-3"}`}>
+        <div className={`grid h-12 ${isAdmin ? "grid-cols-5" : "grid-cols-3"}`}>
           <Tab href="/inbox" label="Inbox" count={badges.inbox} />
           <Tab href="/queue" label="Queue" count={badges.queue} />
           <Tab href="/alerts" label="Alerts" count={badges.alerts} alert />
-          {me?.role === "admin" ? <Tab href="/monitor" label="Monitor" count={monitor} /> : null}
+          {isAdmin ? <Tab href="/monitor" label="Monitor" count={monitor} /> : null}
+          {isAdmin ? <Tab href="/directory" label="Directory" count={0} /> : null}
         </div>
       </nav>
       {profile && me ? (

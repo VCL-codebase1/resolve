@@ -803,6 +803,23 @@ export async function handle(method: string, path: string[], request: Request): 
           `UPDATE users SET name = $2, email = $3, role = $4, department_slug = $5, active = $6, password_hash = $7 WHERE id = $1`,
           [current.id, name, email, role, department, active, await hashPassword(password)],
         );
+        const door = String(role) === "admin" ? "/admin" : "/login";
+        await sendMail({
+          event: "account.password_changed",
+          subject: "Your desk password was changed",
+          title: "Your password was changed",
+          eventLabel: "Password changed",
+          meta: "The new password is not in this email",
+          actorName: user.name,
+          actorDepartment: (await departmentName(user.departmentSlug)) || user.departmentSlug,
+          note: `${user.name} set a new password for your desk account. Sign in with the password they gave you. If you did not expect this, contact an admin.`,
+          ticketId: "Account",
+          ticketUrl: `${origin()}${door}`,
+          toIds: [current.id],
+          ccIds: [],
+          ticketIdForRow: null,
+          outreachId: null,
+        });
       } else {
         await q(`UPDATE users SET name = $2, email = $3, role = $4, department_slug = $5, active = $6 WHERE id = $1`, [
           current.id,
