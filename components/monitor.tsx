@@ -144,71 +144,121 @@ export function Monitor() {
 }
 
 export function Directory() {
-  const { me, departments, refresh } = useDesk();
+  const { me, departments } = useDesk();
   const router = useRouter();
   const [people, setPeople] = useState<Person[]>([]);
+  const [total, setTotal] = useState(0);
   const [catalog, setCatalog] = useState(departments);
   const [error, setError] = useState("");
-  const [pending, setPending] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [pending, setPending] = useState<"" | "department" | "person">("");
   const [resetFor, setResetFor] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [debounced, setDebounced] = useState("");
+  const [departmentFilter, setDepartmentFilter] = useState("");
+  const [page, setPage] = useState(0);
+  const pageSize = 8;
 
   useEffect(() => {
-    setCatalog(departments);
+    if (departments.length) setCatalog(departments);
   }, [departments]);
 
-  async function loadPeople() {
-    const body = await api<{ items: Person[] }>("/people?limit=200");
+  useEffect(() => {
+    api<{ items: Department[] }>("/departments")
+      .then((body) => setCatalog(body.items))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebounced(query.trim()), 200);
+    return () => window.clearTimeout(timer);
+  }, [query]);
+
+  useEffect(() => {
+    setPage(0);
+  }, [debounced, departmentFilter]);
+
+  async function loadPeople(nextPage = page) {
+    const params = new URLSearchParams();
+    params.set("limit", String(pageSize));
+    params.set("offset", String(nextPage * pageSize));
+    if (debounced) params.set("q", debounced);
+    if (departmentFilter) params.set("department", departmentFilter);
+    const body = await api<{ items: Person[]; total: number }>(`/people?${params.toString()}`);
     setPeople(body.items);
+    setTotal(body.total);
   }
 
   useEffect(() => {
     if (me && me.role !== "admin") return;
-    loadPeople().catch((reason: Error) => setError(reason.message));
-  }, [me]);
+    const params = new URLSearchParams();
+    params.set("limit", String(pageSize));
+    params.set("offset", String(page * pageSize));
+    if (debounced) params.set("q", debounced);
+    if (departmentFilter) params.set("department", departmentFilter);
+    let ignore = false;
+    api<{ items: Person[]; total: number }>(`/people?${params.toString()}`)
+      .then((body) => {
+        if (ignore) return;
+        setPeople(body.items);
+        setTotal(body.total);
+      })
+      .catch((reason: Error) => {
+        if (!ignore) setError(reason.message);
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [me, page, debounced, departmentFilter]);
 
   if (me && me.role !== "admin") return <p className="px-4 py-8 min-[880px]:px-8">The directory is for admins.</p>;
 
   async function addDepartment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    setPending(true);
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    setPending("department");
     setError("");
+    setNotice("");
     try {
-      await api("/departments", { method: "POST", body: JSON.stringify({ name: form.get("name") }) });
-      const body = await api<{ items: Department[] }>("/departments");
-      setCatalog(body.items);
-      refresh();
-      event.currentTarget.reset();
+      const created = await api<Department>("/departments", { method: "POST", body: JSON.stringify({ name: data.get("name") }) });
+      setCatalog((current) => [...current.filter((item) => item.slug !== created.slug), created]);
+      form.reset();
+      setNotice("Department added.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "That department was not added.");
     } finally {
-      setPending(false);
+      setPending("");
     }
   }
 
   async function addPerson(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    setPending(true);
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    setPending("person");
     setError("");
+    setNotice("");
     try {
       await api("/people", {
         method: "POST",
         body: JSON.stringify({
-          name: form.get("name"),
-          email: form.get("email"),
-          password: form.get("password"),
-          role: form.get("role"),
-          departmentSlug: form.get("departmentSlug"),
-          queueRecipient: form.get("role") === "lead" || form.get("queueRecipient") === "on",
+          name: data.get("name"),
+          email: data.get("email"),
+          password: data.get("password"),
+          role: data.get("role"),
+          departmentSlug: data.get("departmentSlug"),
+          queueRecipient: data.get("role") === "lead" || data.get("queueRecipient") === "on",
         }),
       });
-      await loadPeople();
-      event.currentTarget.reset();
+      await loadPeople(0);
+      setPage(0);
+      form.reset();
+      setNotice("Person added.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "That person was not added.");
     } finally {
-      setPending(false);
+      setPending("");
     }
   }
 
@@ -219,7 +269,7 @@ export function Directory() {
         method: "PATCH",
         body: JSON.stringify({ role: "lead", queueRecipient: true }),
       });
-      await loadPeople();
+      await loadPeople(page);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "That person was not made head.");
     }
@@ -240,6 +290,9 @@ export function Directory() {
     }
   }
 
+  const pages = Math.max(1, Math.ceil(total / pageSize));
+  const roleLabel = (role: string) => (role === "lead" ? "Head" : role === "admin" ? "Admin" : "Staff");
+
   return (
     <section>
       <header className="border-b border-line px-4 py-5 min-[880px]:px-8">
@@ -249,80 +302,105 @@ export function Directory() {
         <h1 className="mt-2 text-[22px] font-semibold">Directory</h1>
         <p className="mt-1 text-[15px] text-ink-soft">Departments, heads, and staff. There is no public sign-up.</p>
       </header>
-      {catalog.map((department) => {
-        const staff = people.filter((person) => person.departmentSlug === department.slug);
-        return (
-          <section key={department.slug} className="border-b border-line px-4 py-4 min-[880px]:px-8">
-            <h2 className="text-[16px] font-semibold">{department.name}</h2>
-            <ul className="mt-2">
-              {staff.map((person) => (
-                <li key={person.id} className="border-t border-line py-3">
-                  <div className="flex flex-wrap items-baseline justify-between gap-3">
-                    <span className="text-[15px]">
-                      {person.name}
-                      {person.email ? ` · ${person.email}` : ""}
-                      {!person.active ? " · Disabled" : ""}
-                    </span>
-                    <span className="text-[13px] text-muted">{person.role === "lead" ? "Head" : person.role}</span>
-                  </div>
-                  <div className="mt-2 flex flex-wrap gap-3">
-                    {person.role !== "lead" ? (
-                      <button type="button" className="text-[14px] text-action" onClick={() => makeHead(person)}>
-                        Make department head
-                      </button>
-                    ) : null}
-                    <button type="button" className="text-[14px] text-action" onClick={() => setResetFor(resetFor === person.id ? null : person.id)}>
-                      Set a new password
-                    </button>
-                  </div>
-                  {resetFor === person.id ? (
-                    <form onSubmit={(event) => resetPassword(event, person)} className="mt-2 flex flex-wrap gap-2">
-                      <input name="password" required minLength={10} type="text" placeholder="New password, at least 10 characters" className="h-11 min-w-64 flex-1 rounded-[10px] border border-line px-3" />
-                      <button type="submit" className="h-11 rounded-[10px] bg-action px-4 text-[14px] font-semibold text-white">
-                        Save password
-                      </button>
-                    </form>
-                  ) : null}
-                </li>
-              ))}
-              {staff.length === 0 ? <li className="text-[14px] text-muted">No one in this department yet.</li> : null}
-            </ul>
-          </section>
-        );
-      })}
-      <form onSubmit={addDepartment} className="grid max-w-md gap-3 px-4 py-6 min-[880px]:px-8">
-        <h2 className="text-[18px] font-semibold">New department</h2>
-        <input name="name" required placeholder="Department name" className="h-11 rounded-[10px] border border-line px-3" />
-        <button type="submit" disabled={pending} className="h-11 rounded-[10px] bg-action text-[14px] font-semibold text-white disabled:opacity-40">
-          Add department
-        </button>
-      </form>
-      <form onSubmit={addPerson} className="grid max-w-md gap-3 px-4 pb-8 min-[880px]:px-8">
-        <h2 className="text-[18px] font-semibold">Add a person</h2>
-        <input name="name" required placeholder="Name" className="h-11 rounded-[10px] border border-line px-3" />
-        <input name="email" type="email" required placeholder="Work email" className="h-11 rounded-[10px] border border-line px-3" />
-        <input name="password" required minLength={10} placeholder="Password, at least 10 characters" className="h-11 rounded-[10px] border border-line px-3" />
-        <select name="role" className="h-11 rounded-[10px] border border-line px-3" defaultValue="member">
-          <option value="member">Member</option>
-          <option value="lead">Department head</option>
-          <option value="admin">Admin</option>
-        </select>
-        <select name="departmentSlug" className="h-11 rounded-[10px] border border-line px-3" defaultValue={catalog[0]?.slug}>
+      <div className="grid gap-6 border-b border-line px-4 py-5 min-[880px]:grid-cols-2 min-[880px]:px-8">
+        <form onSubmit={addDepartment} className="lift grid gap-3 rounded-[22px] p-4">
+          <h2 className="text-[16px] font-semibold">New department</h2>
+          <input name="name" required placeholder="Department name" className="h-11 rounded-[10px] border border-line bg-white px-3" />
+          <button type="submit" disabled={pending === "department"} className="h-11 rounded-[10px] bg-action text-[14px] font-semibold text-white disabled:opacity-40">
+            {pending === "department" ? "Saving…" : "Add department"}
+          </button>
+        </form>
+        <form onSubmit={addPerson} className="lift grid gap-3 rounded-[22px] p-4">
+          <h2 className="text-[16px] font-semibold">Add a person</h2>
+          <input name="name" required placeholder="Name" className="h-11 rounded-[10px] border border-line bg-white px-3" />
+          <input name="email" type="email" required placeholder="Work email" className="h-11 rounded-[10px] border border-line bg-white px-3" />
+          <input name="password" required minLength={10} placeholder="Password, at least 10 characters" className="h-11 rounded-[10px] border border-line bg-white px-3" />
+          <select name="role" className="h-11 rounded-[10px] border border-line bg-white px-3" defaultValue="member">
+            <option value="member">Member</option>
+            <option value="lead">Department head</option>
+            <option value="admin">Admin</option>
+          </select>
+          <select name="departmentSlug" className="h-11 rounded-[10px] border border-line bg-white px-3" defaultValue={catalog[0]?.slug}>
+            {catalog.map((department) => (
+              <option key={department.slug} value={department.slug}>
+                {department.name}
+              </option>
+            ))}
+          </select>
+          <label className="flex items-center gap-2 text-[14px]">
+            <input name="queueRecipient" type="checkbox" />
+            Copy them on the department queue
+          </label>
+          <button type="submit" disabled={pending === "person"} className="h-11 rounded-[10px] bg-action text-[14px] font-semibold text-white disabled:opacity-40">
+            {pending === "person" ? "Saving…" : "Add person"}
+          </button>
+        </form>
+      </div>
+      <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-4 min-[880px]:px-8">
+        <input
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search name or email"
+          className="h-11 min-w-56 flex-1 rounded-[10px] border border-line bg-white px-3 text-[14px]"
+        />
+        <select value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)} className="h-11 rounded-[10px] border border-line bg-white px-3 text-[14px]">
+          <option value="">All departments</option>
           {catalog.map((department) => (
             <option key={department.slug} value={department.slug}>
               {department.name}
             </option>
           ))}
         </select>
-        <label className="flex items-center gap-2 text-[14px]">
-          <input name="queueRecipient" type="checkbox" />
-          Copy them on the department queue
-        </label>
-        {error ? <p className="text-[14px] text-danger">{error}</p> : null}
-        <button type="submit" disabled={pending} className="h-11 rounded-[10px] bg-action text-[14px] font-semibold text-white disabled:opacity-40">
-          {pending ? "Saving…" : "Add person"}
+        <p className="text-[13px] text-muted">{total === 1 ? "1 person" : `${total} people`}</p>
+      </div>
+      {notice ? <p className="px-4 pt-4 text-[14px] text-action min-[880px]:px-8">{notice}</p> : null}
+      {error ? <p className="px-4 pt-4 text-[14px] text-danger min-[880px]:px-8">{error}</p> : null}
+      <ul>
+        {people.map((person) => (
+          <li key={person.id} className="border-b border-line px-4 py-3 min-[880px]:px-8">
+            <div className="flex flex-wrap items-baseline justify-between gap-3">
+              <span className="text-[15px]">
+                {person.name}
+                {person.email ? ` · ${person.email}` : ""}
+                {!person.active ? " · Disabled" : ""}
+              </span>
+              <span className="text-[13px] text-muted">
+                {roleLabel(person.role)} · {catalog.find((item) => item.slug === person.departmentSlug)?.name || person.departmentSlug}
+              </span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-3">
+              {person.role !== "lead" && person.role !== "admin" ? (
+                <button type="button" className="text-[14px] text-action" onClick={() => makeHead(person)}>
+                  Make department head
+                </button>
+              ) : null}
+              <button type="button" className="text-[14px] text-action" onClick={() => setResetFor(resetFor === person.id ? null : person.id)}>
+                Set a new password
+              </button>
+            </div>
+            {resetFor === person.id ? (
+              <form onSubmit={(event) => resetPassword(event, person)} className="mt-2 flex flex-wrap gap-2">
+                <input name="password" required minLength={10} type="text" placeholder="New password, at least 10 characters" className="h-11 min-w-64 flex-1 rounded-[10px] border border-line bg-white px-3" />
+                <button type="submit" className="h-11 rounded-[10px] bg-action px-4 text-[14px] font-semibold text-white">
+                  Save password
+                </button>
+              </form>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+      {people.length === 0 ? <p className="px-4 py-8 text-[15px] text-ink-soft min-[880px]:px-8">No one matches this search.</p> : null}
+      <div className="flex items-center justify-between px-4 py-4 min-[880px]:px-8">
+        <button type="button" className="h-11 text-[14px] text-action disabled:opacity-40" disabled={page === 0} onClick={() => setPage((value) => Math.max(0, value - 1))}>
+          Previous
         </button>
-      </form>
+        <p className="text-[13px] text-muted">
+          Page {page + 1} of {pages}
+        </p>
+        <button type="button" className="h-11 text-[14px] text-action disabled:opacity-40" disabled={page + 1 >= pages} onClick={() => setPage((value) => value + 1)}>
+          Next
+        </button>
+      </div>
     </section>
   );
 }

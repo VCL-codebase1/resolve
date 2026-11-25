@@ -21,7 +21,7 @@ export function Thread({ id }: { id: string }) {
       .then((body) => {
         setTicket(body);
         setError("");
-        return api<{ items: Person[] }>(`/people?department=${body.targetDepartment}`);
+        return api<{ items: Person[] }>(`/people?department=${body.targetDepartment}&limit=50`);
       })
       .then((body) => setPeople(body.items.filter((person) => person.active)))
       .catch((reason: Error) => setError(reason.message));

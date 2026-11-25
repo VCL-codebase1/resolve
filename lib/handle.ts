@@ -396,13 +396,13 @@ async function sendMail(input: Omit<MailInput, "providerMessageId" | "to" | "cc"
      VALUES ($1, $2, $3, $4, $5::text[], $6::text[], 'queued')`,
     [receiptId, input.ticketIdForRow, input.outreachId, input.event, to, cc],
   );
-  try {
-    const providerMessageId = await deliver({ ...input, to, cc, providerMessageId: receiptId });
-    await q(`UPDATE receipts SET state = 'sent', provider_message_id = $2 WHERE id = $1`, [receiptId, providerMessageId]);
-  } catch (error) {
-    await q(`UPDATE receipts SET state = 'failed' WHERE id = $1`, [receiptId]);
-    console.error(error);
-  }
+  const payload = { ...input, to, cc, providerMessageId: receiptId };
+  void deliver(payload)
+    .then((providerMessageId) => q(`UPDATE receipts SET state = 'sent', provider_message_id = $2 WHERE id = $1`, [receiptId, providerMessageId]))
+    .catch((error: unknown) => {
+      console.error(error);
+      return q(`UPDATE receipts SET state = 'failed' WHERE id = $1`, [receiptId]);
+    });
   return receiptId;
 }
 
@@ -510,6 +510,9 @@ async function listTickets(user: User, url: URL, forced?: { bucket?: string; adm
     }
     add(`t.target_department = ?`, department);
   }
+
+  const query = url.searchParams.get("q")?.trim();
+  if (query) add(`(t.title ILIKE ? OR t.id ILIKE ?)`, `%${query}%`, `%${query}%`);
 
   const cursor = url.searchParams.get("cursor");
   if (cursor) {
@@ -652,9 +655,40 @@ export async function handle(method: string, path: string[], request: Request): 
 
     if (key === "GET departments") {
       const user = await requireUser(request);
-      const rows = await q<{ slug: string }>(`SELECT slug FROM departments ORDER BY position, slug`);
-      const items = [];
-      for (const row of rows) items.push(await departmentPayload(row.slug, user.role === "admin"));
+      const includeEmail = user.role === "admin";
+      const rows = await q<Record<string, unknown>>(
+        `SELECT d.slug, d.name,
+                u.id AS user_id, u.email, u.name AS user_name, u.role, u.department_slug, u.active
+         FROM departments d
+         LEFT JOIN department_recipients r ON r.department_slug = d.slug
+         LEFT JOIN users u ON u.id = r.user_id
+         ORDER BY d.position, d.slug, u.name`,
+      );
+      const items: { slug: string; name: string; recipients: ReturnType<typeof person>[] }[] = [];
+      const index = new Map<string, (typeof items)[number]>();
+      for (const row of rows) {
+        const slug = String(row.slug);
+        let item = index.get(slug);
+        if (!item) {
+          item = { slug, name: String(row.name), recipients: [] };
+          index.set(slug, item);
+          items.push(item);
+        }
+        if (!row.user_id) continue;
+        item.recipients.push(
+          person(
+            {
+              id: String(row.user_id),
+              email: String(row.email ?? ""),
+              name: String(row.user_name),
+              role: row.role as User["role"],
+              departmentSlug: row.department_slug as DepartmentSlug,
+              active: Boolean(row.active),
+            },
+            includeEmail,
+          ),
+        );
+      }
       return json({ items });
     }
 
@@ -682,11 +716,27 @@ export async function handle(method: string, path: string[], request: Request): 
       const user = await requireUser(request);
       const department = url.searchParams.get("department");
       if (department && !(await departmentName(department))) throw new HttpError(422, "validation", "That department is not valid.");
-      const limit = pageLimit(url, 200, 100);
-      const rows = department
-        ? await q(`SELECT id, email, name, role, department_slug, active FROM users WHERE department_slug = $1 ORDER BY name LIMIT $2`, [department, limit])
-        : await q(`SELECT id, email, name, role, department_slug, active FROM users ORDER BY name LIMIT $1`, [limit]);
+      const query = url.searchParams.get("q")?.trim() || "";
+      const offset = Math.max(0, Math.floor(Number(url.searchParams.get("offset") || 0) || 0));
+      const limit = pageLimit(url, 50, 12);
+      const where: string[] = [];
+      const params: unknown[] = [];
+      if (department) {
+        params.push(department);
+        where.push(`department_slug = $${params.length}`);
+      }
+      if (query) {
+        params.push(`%${query}%`);
+        where.push(`(name ILIKE $${params.length} OR email ILIKE $${params.length})`);
+      }
+      const clause = where.length ? `WHERE ${where.join(" AND ")}` : "";
+      const counted = await q<{ n: number }>(`SELECT count(*)::int AS n FROM users ${clause}`, params);
+      const rows = await q(
+        `SELECT id, email, name, role, department_slug, active FROM users ${clause} ORDER BY name LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        [...params, limit, offset],
+      );
       return json({
+        total: Number(counted[0]?.n ?? 0),
         items: rows.map((row) =>
           person(
             {
@@ -1058,11 +1108,16 @@ export async function handle(method: string, path: string[], request: Request): 
       const where = [`user_id = $1`];
       const params: unknown[] = [user.id];
       if (url.searchParams.get("unread") === "true") where.push(`read = false`);
+      const query = url.searchParams.get("q")?.trim();
+      if (query) {
+        params.push(`%${query}%`);
+        where.push(`n.sentence ILIKE $${params.length}`);
+      }
       const cursor = url.searchParams.get("cursor");
       if (cursor) {
         const decoded = decodeCursor(cursor);
         params.push(decoded.time, decoded.id);
-        where.push(`(created_at, id) < ($${params.length - 1}::timestamptz, $${params.length})`);
+        where.push(`(n.created_at, n.id) < ($${params.length - 1}::timestamptz, $${params.length})`);
       }
       const limit = pageLimit(url);
       params.push(limit + 1);

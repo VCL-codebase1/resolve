@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { api, type Badges, type Department, type Me } from "./api";
 
 type Note = { id: string; sentence: string };
@@ -49,7 +49,6 @@ function play(kind: "raise" | "reply" | "status", ctx: AudioContext) {
 
 export function DeskProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const pathname = usePathname();
   const [me, setMe] = useState<Me | null>(null);
   const [badges, setBadges] = useState<Badges>(emptyBadges);
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -105,7 +104,7 @@ export function DeskProvider({ children }: { children: React.ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [router, pathname]);
+  }, [router]);
 
   const mutedRef = useRef(muted);
   mutedRef.current = muted;

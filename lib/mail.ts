@@ -4,6 +4,16 @@ import { fileURLToPath } from "node:url";
 import nodemailer from "nodemailer";
 
 const dir = join(dirname(fileURLToPath(import.meta.url)), "..", "docs", "email");
+let htmlTemplate = "";
+let textTemplate = "";
+
+function templates() {
+  if (!htmlTemplate) {
+    htmlTemplate = readFileSync(join(dir, "ticket.html"), "utf8");
+    textTemplate = readFileSync(join(dir, "ticket.txt"), "utf8");
+  }
+  return { htmlTemplate, textTemplate };
+}
 
 function fill(template: string, tokens: Record<string, string>) {
   return template.replace(/\{\{(\w+)\}\}/g, (_, key: string) => tokens[key] ?? "");
@@ -49,8 +59,7 @@ export type MailInput = {
 };
 
 export function renderMail(input: MailInput) {
-  const htmlTemplate = readFileSync(join(dir, "ticket.html"), "utf8");
-  const textTemplate = readFileSync(join(dir, "ticket.txt"), "utf8");
+  const { htmlTemplate, textTemplate } = templates();
   const copied = [...input.to, ...input.cc];
   const shared = {
     ticketId: input.ticketId ?? "",
@@ -84,6 +93,27 @@ export function renderMail(input: MailInput) {
   return { html, text };
 }
 
+let transporter: ReturnType<typeof nodemailer.createTransport> | null = null;
+let transporterKey = "";
+
+function mailer() {
+  const host = process.env.SMTP_HOST;
+  if (!host) return null;
+  const port = Number(process.env.SMTP_PORT || 587);
+  const user = process.env.SMTP_USER || "";
+  const key = `${host}:${port}:${user}`;
+  if (!transporter || transporterKey !== key) {
+    transporter = nodemailer.createTransport({
+      host,
+      port,
+      secure: process.env.SMTP_SECURE === "true" || port === 465,
+      auth: user ? { user, pass: process.env.SMTP_PASS || "" } : undefined,
+    });
+    transporterKey = key;
+  }
+  return transporter;
+}
+
 export async function deliver(input: MailInput) {
   const { html, text } = renderMail(input);
   const host = process.env.SMTP_HOST;
@@ -91,15 +121,7 @@ export async function deliver(input: MailInput) {
     console.log(`Email ${input.event} to ${input.to.join(", ")} cc ${input.cc.join(", ")}: ${input.subject}`);
     return input.providerMessageId;
   }
-  const port = Number(process.env.SMTP_PORT || 587);
-  const user = process.env.SMTP_USER;
-  const transporter = nodemailer.createTransport({
-    host,
-    port,
-    secure: process.env.SMTP_SECURE === "true" || port === 465,
-    auth: user ? { user, pass: process.env.SMTP_PASS || "" } : undefined,
-  });
-  const info = await transporter.sendMail({
+  const info = await mailer()!.sendMail({
     from: process.env.EMAIL_FROM || "Desk <desk@vethancon.com>",
     to: input.to,
     cc: input.cc,
