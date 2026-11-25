@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { api, badgeText, type Department, type Person } from "./api";
+import { ApiError, api, badgeText, said, type Department, type Person } from "./api";
 import { WorkList } from "./lists";
 import { useDesk } from "./provider";
 
@@ -23,7 +23,7 @@ const sections = [
 ] as const;
 
 export function Monitor() {
-  const { me, badges, refresh } = useDesk();
+  const { me, badges, refresh, toast } = useDesk();
   const params = useSearchParams();
   const bucket = params.get("bucket") || "raised";
   const department = params.get("department") || "";
@@ -37,7 +37,11 @@ export function Monitor() {
     if (me && me.role !== "admin") return;
     api<Summary>("/admin/summary")
       .then(setSummary)
-      .catch((reason: Error) => setError(reason.message));
+      .catch((reason: unknown) => {
+        const message = said(reason, "The monitor could not be loaded.");
+        setError(message);
+        if (reason instanceof ApiError && reason.status === 0) toast(message, "error");
+      });
   }, [me, badges]);
 
   if (me && me.role !== "admin") {
@@ -64,8 +68,11 @@ export function Monitor() {
       setReach(null);
       setNote("");
       refresh();
+      toast(`Note sent to ${reach.name}.`);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "That note did not send.");
+      const message = said(reason, "That note did not send.");
+      setError(message);
+      toast(message, "error");
     } finally {
       setPending(false);
     }
@@ -144,7 +151,7 @@ export function Monitor() {
 }
 
 export function Directory() {
-  const { me, departments } = useDesk();
+  const { me, departments, toast } = useDesk();
   const router = useRouter();
   const [people, setPeople] = useState<Person[]>([]);
   const [total, setTotal] = useState(0);
@@ -203,8 +210,11 @@ export function Directory() {
         setPeople(body.items);
         setTotal(body.total);
       })
-      .catch((reason: Error) => {
-        if (!ignore) setError(reason.message);
+      .catch((reason: unknown) => {
+        if (ignore) return;
+        const message = said(reason, "The directory could not be loaded.");
+        setError(message);
+        if (reason instanceof ApiError && reason.status === 0) toast(message, "error");
       });
     return () => {
       ignore = true;
@@ -225,8 +235,11 @@ export function Directory() {
       setCatalog((current) => [...current.filter((item) => item.slug !== created.slug), created]);
       form.reset();
       setNotice("Department added.");
+      toast("Department added.");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "That department was not added.");
+      const message = said(reason, "That department was not added.");
+      setError(message);
+      toast(message, "error");
     } finally {
       setPending("");
     }
@@ -255,8 +268,11 @@ export function Directory() {
       setPage(0);
       form.reset();
       setNotice("Person added.");
+      toast("Person added.");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "That person was not added.");
+      const message = said(reason, "That person was not added.");
+      setError(message);
+      toast(message, "error");
     } finally {
       setPending("");
     }
@@ -270,8 +286,11 @@ export function Directory() {
         body: JSON.stringify({ role: "lead", queueRecipient: true }),
       });
       await loadPeople(page);
+      toast(`${person.name} is now the department head.`);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "That person was not made head.");
+      const message = said(reason, "That person was not made head.");
+      setError(message);
+      toast(message, "error");
     }
   }
 
@@ -285,8 +304,11 @@ export function Directory() {
         body: JSON.stringify({ password: form.get("password") }),
       });
       setResetFor(null);
+      toast("Password saved.");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The password was not changed.");
+      const message = said(reason, "The password was not changed.");
+      setError(message);
+      toast(message, "error");
     }
   }
 

@@ -1,14 +1,16 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { api, type Me } from "./api";
+import { api, said, type Me } from "./api";
 import { Logo, ThemeToggle } from "./brand";
 import { useDesk } from "./provider";
+import { chime, unlockSound } from "./sound";
+import { ToastList, type ToastNote } from "./toasts";
 
 export function Composer() {
-  const { composer, setComposer, departments, refresh } = useDesk();
+  const { composer, setComposer, departments, refresh, toast } = useDesk();
   const router = useRouter();
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
@@ -38,9 +40,12 @@ export function Composer() {
       }
       setComposer(false);
       refresh();
+      toast("Ticket raised.");
       router.push(`/tickets/${ticket.id}`);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "That ticket did not send.");
+      const message = said(reason, "That ticket did not send.");
+      setError(message);
+      toast(message, "error");
     } finally {
       setPending(false);
     }
@@ -108,6 +113,23 @@ export function LoginForm({ admin = false }: { admin?: boolean }) {
   const router = useRouter();
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const [notes, setNotes] = useState<ToastNote[]>([]);
+
+  useEffect(() => {
+    window.addEventListener("pointerdown", unlockSound);
+    window.addEventListener("keydown", unlockSound);
+    return () => {
+      window.removeEventListener("pointerdown", unlockSound);
+      window.removeEventListener("keydown", unlockSound);
+    };
+  }, []);
+
+  function toast(sentence: string) {
+    const id = crypto.randomUUID();
+    setNotes((current) => [{ id, sentence, tone: "error" as const }, ...current].slice(0, 3));
+    window.setTimeout(() => setNotes((current) => current.filter((note) => note.id !== id)), 4200);
+    chime("error");
+  }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -122,12 +144,16 @@ export function LoginForm({ admin = false }: { admin?: boolean }) {
       const wrongDoor = admin ? person.role !== "admin" : person.role === "admin";
       if (wrongDoor) {
         await api("/auth/logout", { method: "POST" });
-        setError(admin ? "This page is for admins. Staff use the main sign-in." : "Admins sign in at the admin page.");
+        const message = admin ? "This page is for admins. Staff use the main sign-in." : "Admins sign in at the admin page.";
+        setError(message);
+        toast(message);
         return;
       }
       router.replace(admin ? "/monitor" : "/inbox");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Email or password is wrong.");
+      const message = said(reason, "Email or password is wrong.");
+      setError(message);
+      toast(message);
     } finally {
       setPending(false);
     }
@@ -135,6 +161,7 @@ export function LoginForm({ admin = false }: { admin?: boolean }) {
 
   return (
     <main className="stage flex min-h-dvh items-center justify-center px-5">
+      <ToastList notes={notes} dock={false} dismiss={(id) => setNotes((current) => current.filter((note) => note.id !== id))} />
       <form onSubmit={onSubmit} className="pane w-full max-w-sm rounded-[28px] px-6 py-7">
         <div className="flex items-center justify-between">
           <Link href="/">

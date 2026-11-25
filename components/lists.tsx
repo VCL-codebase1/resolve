@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { api, relativeTime, STATUS_LABEL, type Department, type Ticket } from "./api";
+import { ApiError, api, relativeTime, said, STATUS_LABEL, type Department, type Ticket } from "./api";
 import { useDesk } from "./provider";
 
 const names = (departments: Department[], slug: string) => departments.find((item) => item.slug === slug)?.name || slug;
@@ -39,7 +39,7 @@ export function WorkList({
   lede: string;
   embedded?: boolean;
 }) {
-  const { live, departments, me, badges } = useDesk();
+  const { live, departments, me, badges, toast } = useDesk();
   const [items, setItems] = useState<Ticket[] | null>(null);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
@@ -77,8 +77,11 @@ export function WorkList({
         setNext(body.nextCursor);
         setError("");
       })
-      .catch((reason: Error) => {
-        if (!ignore) setError(reason.message);
+      .catch((reason: unknown) => {
+        if (ignore) return;
+        const message = said(reason, "That list could not be loaded.");
+        setError(message);
+        if (reason instanceof ApiError && reason.status === 0) toast(message, "error");
       });
     return () => {
       ignore = true;

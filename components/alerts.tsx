@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { api, relativeTime, type Notice } from "./api";
+import { ApiError, api, relativeTime, said, type Notice } from "./api";
 import { useDesk } from "./provider";
 
 export function Alerts() {
-  const { live, refresh } = useDesk();
+  const { live, refresh, toast } = useDesk();
   const [items, setItems] = useState<Notice[] | null>(null);
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
@@ -32,8 +32,10 @@ export function Alerts() {
         setItems((current) => (cursor ? [...(current ?? []), ...body.items] : body.items));
         setNext(body.nextCursor);
       })
-      .catch(() => {
-        if (!ignore && !cursor) setItems([]);
+      .catch((reason: unknown) => {
+        if (ignore) return;
+        if (!cursor) setItems([]);
+        if (reason instanceof ApiError && reason.status === 0) toast(said(reason, "Alerts could not be loaded."), "error");
       });
     return () => {
       ignore = true;
@@ -42,8 +44,12 @@ export function Alerts() {
 
   async function open(item: Notice) {
     if (!item.read) {
-      await api("/notifications/read", { method: "POST", body: JSON.stringify({ ids: [item.id] }) });
-      refresh();
+      try {
+        await api("/notifications/read", { method: "POST", body: JSON.stringify({ ids: [item.id] }) });
+        refresh();
+      } catch (reason) {
+        toast(said(reason, "That alert could not be marked read."), "error");
+      }
     }
   }
 
@@ -58,7 +64,12 @@ export function Alerts() {
           type="button"
           className="h-11 text-[14px] text-action"
           onClick={() => {
-            void api("/notifications/read", { method: "POST", body: JSON.stringify({ ids: [] }) }).then(refresh);
+            void api("/notifications/read", { method: "POST", body: JSON.stringify({ ids: [] }) })
+              .then(() => {
+                refresh();
+                toast("Alerts marked read.");
+              })
+              .catch((reason: unknown) => toast(said(reason, "Alerts could not be marked read."), "error"));
           }}
         >
           Mark all read

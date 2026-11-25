@@ -7,6 +7,7 @@ import { DeskProvider, useDesk } from "./provider";
 import { api, badgeText } from "./api";
 import { Composer } from "./composer";
 import { Logo, ThemeToggle } from "./brand";
+import { ToastList } from "./toasts";
 
 function Tab({ href, label, count, alert }: { href: string; label: string; count: number; alert?: boolean }) {
   const pathname = usePathname();
@@ -39,7 +40,7 @@ function initials(name: string) {
 }
 
 function Chrome({ children }: { children: React.ReactNode }) {
-  const { me, badges, departments, muted, setMuted, setComposer, notes, dismiss } = useDesk();
+  const { me, badges, departments, muted, setMuted, setComposer, notes, dismiss, toast } = useDesk();
   const router = useRouter();
   const [profile, setProfile] = useState(false);
   const department = departments.find((item) => item.slug === me?.departmentSlug)?.name;
@@ -47,8 +48,12 @@ function Chrome({ children }: { children: React.ReactNode }) {
   const role = me?.role === "admin" ? "Admin" : me?.role === "lead" ? "Head" : "Staff";
 
   async function signOut() {
-    await api("/auth/logout", { method: "POST" });
-    router.replace("/");
+    try {
+      await api("/auth/logout", { method: "POST" });
+      router.replace("/");
+    } catch (reason) {
+      toast(reason instanceof Error ? reason.message : "Could not sign out.", "error");
+    }
   }
 
   return (
@@ -106,13 +111,7 @@ function Chrome({ children }: { children: React.ReactNode }) {
             </button>
           </div>
         </header>
-        <div className="pointer-events-none fixed inset-x-3 top-20 z-40 flex flex-col items-center gap-2 min-[880px]:left-[280px]">
-          {notes.slice(0, 2).map((note) => (
-            <button key={note.id} type="button" className="glass pointer-events-auto w-full max-w-lg rounded-[18px] px-4 py-3 text-left text-[14px]" onClick={() => dismiss(note.id)}>
-              {note.sentence}
-            </button>
-          ))}
-        </div>
+        <ToastList notes={notes} dismiss={dismiss} />
         <div className="pane min-h-[calc(100dvh-4rem)] overflow-hidden rounded-none min-[880px]:min-h-0 min-[880px]:flex-1 min-[880px]:rounded-[22px]">
           <div className="h-full overflow-auto pb-28 min-[880px]:pb-6">{children}</div>
         </div>

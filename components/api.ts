@@ -11,11 +11,20 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (init?.body && !(init.body instanceof FormData) && !headers.has("content-type")) {
     headers.set("content-type", "application/json");
   }
-  const response = await fetch(`/api/v1${path}`, { ...init, headers, credentials: "same-origin" });
+  let response: Response;
+  try {
+    response = await fetch(`/api/v1${path}`, { ...init, headers, credentials: "same-origin" });
+  } catch {
+    throw new ApiError(0, "No connection. Check the network and try again.");
+  }
   if (response.status === 204) return undefined as T;
   const data = (await response.json().catch(() => ({}))) as { error?: { message?: string } };
   if (!response.ok) throw new ApiError(response.status, data.error?.message || "Request failed.");
   return data as T;
+}
+
+export function said(reason: unknown, fallback: string) {
+  return reason instanceof Error && reason.message ? reason.message : fallback;
 }
 
 export type Me = {

@@ -3,8 +3,10 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, type Badges, type Department, type Me } from "./api";
+import { chime, unlockSound } from "./sound";
 
-type Note = { id: string; sentence: string };
+export type ToastTone = "success" | "error" | "live";
+type Note = { id: string; sentence: string; tone: ToastTone };
 
 type DeskContext = {
   me: Me | null;
@@ -17,35 +19,13 @@ type DeskContext = {
   setComposer: (value: boolean) => void;
   notes: Note[];
   dismiss: (id: string) => void;
+  toast: (sentence: string, tone?: "success" | "error") => void;
   refresh: () => void;
 };
 
 const Ctx = createContext<DeskContext | null>(null);
 
 const emptyBadges: Badges = { inbox: 0, queue: 0, alerts: 0 };
-
-function play(kind: "raise" | "reply" | "status", ctx: AudioContext) {
-  const now = ctx.currentTime;
-  const tone = (freq: number, at: number, dur: number, type: OscillatorType) => {
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = type;
-    osc.frequency.value = freq;
-    gain.gain.setValueAtTime(0.0001, at);
-    gain.gain.exponentialRampToValueAtTime(0.12, at + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, at + dur);
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(at);
-    osc.stop(at + dur + 0.02);
-  };
-  if (kind === "raise") tone(880, now, 0.12, "sine");
-  if (kind === "reply") {
-    tone(660, now, 0.09, "sine");
-    tone(520, now + 0.1, 0.11, "sine");
-  }
-  if (kind === "status") tone(440, now, 0.1, "triangle");
-}
 
 export function DeskProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -56,9 +36,8 @@ export function DeskProvider({ children }: { children: React.ReactNode }) {
   const [muted, setMutedState] = useState(false);
   const [composer, setComposer] = useState(false);
   const [notes, setNotes] = useState<Note[]>([]);
-  const audio = useRef<AudioContext | null>(null);
-  const unlocked = useRef(false);
-  const lastSound = useRef(0);
+  const mutedRef = useRef(muted);
+  mutedRef.current = muted;
 
   const setMuted = (value: boolean) => {
     setMutedState(value);
@@ -69,18 +48,33 @@ export function DeskProvider({ children }: { children: React.ReactNode }) {
 
   const dismiss = (id: string) => setNotes((current) => current.filter((note) => note.id !== id));
 
+  const sound = useCallback((kind: "success" | "error" | "raise" | "reply" | "status") => {
+    if (mutedRef.current) return;
+    chime(kind);
+  }, []);
+
+  const pushNote = useCallback((sentence: string, tone: ToastTone) => {
+    const id = crypto.randomUUID();
+    setNotes((current) => [{ id, sentence, tone }, ...current].slice(0, 3));
+    window.setTimeout(() => setNotes((current) => current.filter((note) => note.id !== id)), 4200);
+    return id;
+  }, []);
+
+  const toast = useCallback(
+    (sentence: string, tone: "success" | "error" = "success") => {
+      pushNote(sentence, tone);
+      sound(tone);
+    },
+    [pushNote, sound],
+  );
+
   useEffect(() => {
     setMutedState(localStorage.getItem("desk-mute") === "1");
-    const unlock = () => {
-      unlocked.current = true;
-      if (!audio.current) audio.current = new AudioContext();
-      void audio.current.resume();
-    };
-    window.addEventListener("pointerdown", unlock, { once: true });
-    window.addEventListener("keydown", unlock, { once: true });
+    window.addEventListener("pointerdown", unlockSound);
+    window.addEventListener("keydown", unlockSound);
     return () => {
-      window.removeEventListener("pointerdown", unlock);
-      window.removeEventListener("keydown", unlock);
+      window.removeEventListener("pointerdown", unlockSound);
+      window.removeEventListener("keydown", unlockSound);
     };
   }, []);
 
@@ -105,9 +99,6 @@ export function DeskProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
     };
   }, [router]);
-
-  const mutedRef = useRef(muted);
-  mutedRef.current = muted;
 
   useEffect(() => {
     if (!me) return;
@@ -140,15 +131,9 @@ export function DeskProvider({ children }: { children: React.ReactNode }) {
           return;
         }
         if (body.type === "notification.created" && body.sentence && body.sound) {
-          const id = body.notificationId || crypto.randomUUID();
-          const sentence = body.sentence;
-          setNotes((current) => [{ id, sentence }, ...current].slice(0, 2));
-          window.setTimeout(() => setNotes((current) => current.filter((note) => note.id !== id)), 4200);
+          pushNote(body.sentence, "live");
           setLive((value) => value + 1);
-          if (!mutedRef.current && unlocked.current && audio.current && Date.now() - lastSound.current > 80) {
-            lastSound.current = Date.now();
-            play(body.sound, audio.current);
-          }
+          sound(body.sound);
           return;
         }
         if (body.type?.startsWith("ticket.")) setLive((value) => value + 1);
@@ -170,11 +155,11 @@ export function DeskProvider({ children }: { children: React.ReactNode }) {
       if (retry) window.clearTimeout(retry);
       socket?.close();
     };
-  }, [me]);
+  }, [me, pushNote, sound]);
 
   const value = useMemo(
-    () => ({ me, badges, departments, live, muted, setMuted, composer, setComposer, notes, dismiss, refresh }),
-    [me, badges, departments, live, muted, composer, notes, refresh],
+    () => ({ me, badges, departments, live, muted, setMuted, composer, setComposer, notes, dismiss, toast, refresh }),
+    [me, badges, departments, live, muted, composer, notes, toast, refresh],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

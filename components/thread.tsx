@@ -2,13 +2,13 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
-import { api, relativeTime, STATUS_LABEL, type Department, type Person, type Receipt, type TicketDetail } from "./api";
+import { api, relativeTime, said, STATUS_LABEL, type Department, type Person, type Receipt, type TicketDetail } from "./api";
 import { useDesk } from "./provider";
 
 const label = (departments: Department[], slug: string) => departments.find((item) => item.slug === slug)?.name || slug;
 
 export function Thread({ id }: { id: string }) {
-  const { live, departments, me, refresh } = useDesk();
+  const { live, departments, me, refresh, toast } = useDesk();
   const [ticket, setTicket] = useState<TicketDetail | null>(null);
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
@@ -24,7 +24,11 @@ export function Thread({ id }: { id: string }) {
         return api<{ items: Person[] }>(`/people?department=${body.targetDepartment}&limit=50`);
       })
       .then((body) => setPeople(body.items.filter((person) => person.active)))
-      .catch((reason: Error) => setError(reason.message));
+      .catch((reason: unknown) => {
+        const message = said(reason, "That ticket could not be loaded.");
+        setError(message);
+        toast(message, "error");
+      });
     api<{ items: Receipt[] }>(`/tickets/${id}/receipts`)
       .then((body) => setReceipts(body.items))
       .catch(() => setReceipts([]));
@@ -36,14 +40,17 @@ export function Thread({ id }: { id: string }) {
   const manage = me?.role === "admin" || (me?.role === "lead" && me.departmentSlug === ticket.targetDepartment);
   const closed = ticket.status === "closed";
 
-  async function patch(body: Record<string, unknown>) {
+  async function patch(body: Record<string, unknown>, done: string) {
     setError("");
     try {
       const next = await api<TicketDetail>(`/tickets/${id}`, { method: "PATCH", body: JSON.stringify(body) });
       setTicket(next);
       refresh();
+      toast(done);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "That change did not save.");
+      const message = said(reason, "That change did not save.");
+      setError(message);
+      toast(message, "error");
     }
   }
 
@@ -67,8 +74,11 @@ export function Thread({ id }: { id: string }) {
       }
       setReply("");
       refresh();
+      toast("Reply sent.");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "That reply did not send.");
+      const message = said(reason, "That reply did not send.");
+      setError(message);
+      toast(message, "error");
     } finally {
       setPending(false);
     }
@@ -99,7 +109,7 @@ export function Thread({ id }: { id: string }) {
         <div className="mt-6 flex flex-wrap gap-2">
           <select
             value={ticket.assignee?.id || ""}
-            onChange={(event) => patch({ assigneeId: event.target.value || null })}
+            onChange={(event) => patch({ assigneeId: event.target.value || null }, event.target.value ? "Ticket assigned." : "Ticket unassigned.")}
             className="h-11 rounded-[10px] border border-line bg-white px-3 text-[14px]"
           >
             <option value="">Unassigned</option>
@@ -110,17 +120,17 @@ export function Thread({ id }: { id: string }) {
             ))}
           </select>
           {ticket.status !== "in_progress" ? (
-            <button type="button" className="h-11 px-3 text-[14px] text-action" onClick={() => patch({ status: "in_progress" })}>
+            <button type="button" className="h-11 px-3 text-[14px] text-action" onClick={() => patch({ status: "in_progress" }, "Marked in progress.")}>
               In progress
             </button>
           ) : null}
           {ticket.status !== "waiting" ? (
-            <button type="button" className="h-11 px-3 text-[14px] text-action" onClick={() => patch({ status: "waiting" })}>
+            <button type="button" className="h-11 px-3 text-[14px] text-action" onClick={() => patch({ status: "waiting" }, "Marked waiting.")}>
               Waiting
             </button>
           ) : null}
           {ticket.status !== "resolved" ? (
-            <button type="button" className="h-11 px-3 text-[14px] text-action" onClick={() => patch({ status: "resolved" })}>
+            <button type="button" className="h-11 px-3 text-[14px] text-action" onClick={() => patch({ status: "resolved" }, "Ticket resolved.")}>
               Resolve
             </button>
           ) : null}
@@ -129,7 +139,7 @@ export function Thread({ id }: { id: string }) {
               type="button"
               className="h-11 px-3 text-[14px] text-danger"
               onClick={() => {
-                if (confirm("Close this ticket?")) void patch({ status: "closed" });
+                if (confirm("Close this ticket?")) void patch({ status: "closed" }, "Ticket closed.");
               }}
             >
               Close
