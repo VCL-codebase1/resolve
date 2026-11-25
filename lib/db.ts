@@ -1,12 +1,11 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { mkdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { hash } from "@node-rs/argon2";
 import { DEPARTMENT_NAMES, DEPARTMENT_SLUGS, type DepartmentSlug, type Role } from "./labels";
 
-const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const root = process.cwd();
 
 type Runner = {
   unsafe: (text: string, params: unknown[]) => Promise<unknown>;
