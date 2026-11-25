@@ -5,6 +5,7 @@ How to run Desk and check every staff and admin flow. Accounts and the starting 
 ## Before you start
 
 1. Put a working Postgres URI in `SUPABASE_DB_URL` (or leave it unset to use embedded PGlite in `data/pglite`).
+   Enable demo fixtures with `SEED_DEMO=true`. A production run also requires a custom `SEED_PASSWORD` of at least 10 characters.
 2. For Supabase, copy **Session pooler** from Project Settings → Database → Connect. The direct `db.*.supabase.co` host often does not resolve (`ENOTFOUND`).
 3. Quote the URI if the password has `#` or `+`, or URL-encode those characters (`#` → `%23`, `+` → `%2B`) and add `?sslmode=require`.
 4. Migrate and seed, then start:

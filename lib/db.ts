@@ -44,15 +44,23 @@ function statements(sql: string) {
 }
 
 async function migrate(db: Db) {
-  const existing = await db.query<{ name: string | null }>(`SELECT to_regclass('public.departments') AS name`);
-  if (existing[0]?.name) return;
-  const schema = readFileSync(join(root, "schema.sql"), "utf8");
-  for (const statement of statements(schema)) {
-    await db.query(statement);
-  }
+  await db.tx(async () => {
+    // Serialize schema setup across app instances connected to PostgreSQL.
+    await db.query("SELECT pg_advisory_xact_lock(7219441)");
+    await db.query("CREATE TABLE IF NOT EXISTS schema_migrations (version int PRIMARY KEY)");
+    const applied = await db.query("SELECT version FROM schema_migrations WHERE version = 1");
+    if (applied.length) return;
+    const schema = readFileSync(join(root, "schema.sql"), "utf8");
+    for (const statement of statements(schema)) {
+      // Complete databases created before version tracking, including interrupted setup.
+      const resumable = statement.replace(/^CREATE (TABLE|INDEX|SEQUENCE) /, "CREATE $1 IF NOT EXISTS ");
+      await db.query(resumable);
+    }
+    await db.query("INSERT INTO schema_migrations (version) VALUES (1)");
+  });
 }
 
-async function seed(db: Db) {
+async function seedDepartments(db: Db) {
   for (let i = 0; i < DEPARTMENT_SLUGS.length; i++) {
     const slug = DEPARTMENT_SLUGS[i];
     await db.query(
@@ -60,8 +68,13 @@ async function seed(db: Db) {
       [slug, DEPARTMENT_NAMES[slug], i + 1],
     );
   }
+}
 
+async function seed(db: Db) {
   const password = process.env.SEED_PASSWORD || "Desk-staff-1";
+  if (process.env.NODE_ENV === "production" && (password === "Desk-staff-1" || password.length < 10)) {
+    throw new Error("Production demo seeding requires a custom SEED_PASSWORD of at least 10 characters.");
+  }
   const passwordHash = await hash(password);
   const staff: { name: string; email: string; role: Role; dept: DepartmentSlug; queue: boolean }[] = [
     { name: "Amaka Okonkwo", email: "admin@vethancon.com", role: "admin", dept: "it-software", queue: true },
@@ -251,14 +264,26 @@ async function open(): Promise<Db> {
 
 export async function getDb() {
   const slot = globals();
-  if (!slot.__deskDb) {
-    slot.__deskDb = await open();
-    slot.__deskReady = migrate(slot.__deskDb)
-      .then(() => seed(slot.__deskDb as Db))
-      .then(() => seedSamples(slot.__deskDb as Db));
+  if (!slot.__deskReady) {
+    slot.__deskReady = (async () => {
+      const db = slot.__deskDb ?? await open();
+      slot.__deskDb = db;
+      await migrate(db);
+      await seedDepartments(db);
+      if (process.env.SEED_DEMO === "true") {
+        await db.tx(async () => {
+          await db.query("SELECT pg_advisory_xact_lock(7219442)");
+          await seed(db);
+          await seedSamples(db);
+        });
+      }
+    })().catch((error) => {
+      slot.__deskReady = undefined;
+      throw error;
+    });
   }
   await slot.__deskReady;
-  return slot.__deskDb;
+  return slot.__deskDb!;
 }
 
 export async function q<T = Record<string, unknown>>(sql: string, params: unknown[] = []) {

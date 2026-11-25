@@ -8,10 +8,15 @@ From the project folder:
 
 ```bash
 npm install
+# Optional configuration
+cp .env.example .env
+npm run db:admin # Set ADMIN_EMAIL, ADMIN_NAME, ADMIN_PASSWORD first
 npm run dev
 ```
 
 The app listens on port 3000 unless `PORT` is set. Open the URL it prints. The public page is `/`. Staff sign in at `/login`.
+
+Requires Node.js 22.9 or newer. The scripts also run without a .env file and accept environment variables provided by the host.
 
 ## Database
 
@@ -30,11 +35,15 @@ Reply-by-email stays off. `POST /api/v1/inbound/email` returns 501.
 
 ## Seeded staff
 
-These people exist only after a fresh database is created. Every one of them uses the same starting password:
+Demo accounts and sample tickets are created only when `SEED_DEMO=true`. Production requires an explicit custom `SEED_PASSWORD` of at least 10 characters. For local demos, the fallback password is:
 
 `Desk-staff-1`
 
-Change `SEED_PASSWORD` before this app is reachable by anyone outside the machine, and change the accounts after the first sign-in. The password is not shown on the landing page or the sign-in page.
+For production, leave `SEED_DEMO=false` and create your administrator with `npm run db:admin`, using `ADMIN_EMAIL`, `ADMIN_NAME`, and a unique `ADMIN_PASSWORD` of at least 10 characters. The command refuses to overwrite existing accounts.
+
+Existing databases retain their accounts and passwords. Changing `SEED_PASSWORD` affects newly created demo accounts only. Reset existing passwords through Directory.
+
+Schema setup runs transactionally and records completed versions. On first upgrade it completes missing objects from interrupted setup while preserving existing data.
 
 | Name | Email | Role | Department | What they see |
 | --- | --- | --- | --- | --- |

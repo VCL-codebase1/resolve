@@ -3,11 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --env-file=.env --import tsx server.ts",
+    "dev": "node --env-file-if-exists=.env --import tsx server.ts",
     "build": "next build",
-    "start": "NODE_ENV=production node --env-file=.env --import tsx server.ts",
-    "db:setup": "node --env-file=.env --import tsx scripts/setup-db.ts",
-    "db:migrate": "node --env-file=.env --import tsx scripts/setup-db.ts"
+    "start": "NODE_ENV=production node --env-file-if-exists=.env --import tsx server.ts",
+    "db:setup": "node --env-file-if-exists=.env --import tsx scripts/setup-db.ts",
+    "db:migrate": "node --env-file-if-exists=.env --import tsx scripts/setup-db.ts",
+    "db:admin": "node --env-file-if-exists=.env --import tsx scripts/create-admin.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.3.14",
@@ -30,5 +31,8 @@
     "@types/ws": "^8.18.1",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=22.9.0"
   }
 }
