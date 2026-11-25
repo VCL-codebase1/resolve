@@ -343,3 +343,19 @@ a[class*="bg-action"] {
     box-shadow: none;
   }
 }
+
+/* Keep form controls inside narrow grid and flex layouts. */
+input,
+select,
+textarea {
+  min-width: 0;
+  max-width: 100%;
+}
+
+@media (max-width: 879px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
