@@ -173,9 +173,9 @@ export function LoginForm({ admin = false }: { admin?: boolean }) {
         <Link href="/" className="mt-4 inline-flex h-11 items-center text-[14px] text-action">
           Back to home
         </Link>
-        <h1 className="mt-2 text-[28px] font-semibold tracking-tight">{admin ? "Admin sign in" : "Sign in"}</h1>
+        <h1 className="mt-2 text-[28px] font-semibold tracking-tight">{admin ? "Superadmin" : "Sign in"}</h1>
         <p className="mt-2 text-[16px] leading-6 text-ink-soft">
-          {admin ? "Monitor, directory, and passwords." : "Use the work email an admin gave you."}
+          {admin ? "The whole site, including adding, editing, and deleting people." : "Use the work email a superadmin gave you."}
         </p>
         <label className="mt-8 flex flex-col gap-1 text-[14px] font-medium">
           Email

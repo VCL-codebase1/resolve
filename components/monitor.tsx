@@ -183,6 +183,7 @@ export function Directory() {
   const [notice, setNotice] = useState("");
   const [pending, setPending] = useState<"" | "department" | "person">("");
   const [resetFor, setResetFor] = useState<string | null>(null);
+  const [editFor, setEditFor] = useState<string | null>(null);
   const [busy, setBusy] = useState("");
   const [query, setQuery] = useState("");
   const [debounced, setDebounced] = useState("");
@@ -215,9 +216,10 @@ export function Directory() {
       const params = new URLSearchParams();
       params.set("limit", String(pageSize));
       params.set("offset", String(nextPage * pageSize));
-      if (debounced) params.set("q", debounced);
-      if (departmentFilter) params.set("department", departmentFilter);
-      const body = await api<{ items: Person[]; total: number }>(`/people?${params.toString()}`);
+    if (debounced) params.set("q", debounced);
+    const department = me?.role === "lead" ? me.departmentSlug : departmentFilter;
+    if (department) params.set("department", department);
+    const body = await api<{ items: Person[]; total: number }>(`/people?${params.toString()}`);
       setPeople(body.items);
       setTotal(body.total);
     } finally {
@@ -226,12 +228,13 @@ export function Directory() {
   }
 
   useEffect(() => {
-    if (me && me.role !== "admin") return;
+    if (!me || (me.role !== "admin" && me.role !== "lead")) return;
     const params = new URLSearchParams();
     params.set("limit", String(pageSize));
     params.set("offset", String(page * pageSize));
     if (debounced) params.set("q", debounced);
-    if (departmentFilter) params.set("department", departmentFilter);
+    const department = me.role === "lead" ? me.departmentSlug : departmentFilter;
+    if (department) params.set("department", department);
     let ignore = false;
     setLoadingPeople(true);
     api<{ items: Person[]; total: number }>(`/people?${params.toString()}`)
@@ -254,7 +257,12 @@ export function Directory() {
     };
   }, [me, page, debounced, departmentFilter]);
 
-  if (me && me.role !== "admin") return <p className="px-4 py-8 min-[880px]:px-8">The directory is for admins.</p>;
+  if (!me) return <SpinnerBlock label="Loading people" />;
+  if (me.role !== "admin" && me.role !== "lead") {
+    return <p className="px-4 py-8 min-[880px]:px-8">People are managed by a superadmin. Your tickets are in the inbox and the queue.</p>;
+  }
+
+  const superadmin = me?.role === "admin";
 
   async function addDepartment(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -293,7 +301,7 @@ export function Directory() {
           email: data.get("email"),
           password: data.get("password"),
           role: data.get("role"),
-          departmentSlug: data.get("departmentSlug"),
+          departmentSlug: data.get("role") === "admin" ? "it-software" : data.get("departmentSlug"),
           queueRecipient: data.get("role") === "lead" || data.get("queueRecipient") === "on",
         }),
       });
@@ -351,19 +359,73 @@ export function Directory() {
     }
   }
 
+  async function savePerson(event: FormEvent<HTMLFormElement>, person: Person) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const role = String(data.get("role"));
+    setBusy(`edit:${person.id}`);
+    setError("");
+    try {
+      await api(`/people/${person.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          name: data.get("name"),
+          email: data.get("email"),
+          role,
+          departmentSlug: role === "admin" ? "it-software" : data.get("departmentSlug"),
+          active: data.get("active") === "on",
+        }),
+      });
+      setEditFor(null);
+      await loadPeople(page);
+      toast(`${person.name} was updated.`);
+    } catch (reason) {
+      const message = said(reason, "That person was not updated.");
+      setError(message);
+      toast(message, "error");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function removePerson(person: Person) {
+    if (!confirm(`Delete ${person.name}? If they are already on a ticket, the account is disabled instead.`)) return;
+    setBusy(`delete:${person.id}`);
+    setError("");
+    try {
+      const result = await api<{ removed: boolean; disabled: boolean }>(`/people/${person.id}`, { method: "DELETE" });
+      setEditFor(null);
+      setResetFor(null);
+      await loadPeople(page);
+      toast(result.removed ? `${person.name} was deleted.` : `${person.name} was disabled because they are on a ticket.`);
+    } catch (reason) {
+      const message = said(reason, "That person was not deleted.");
+      setError(message);
+      toast(message, "error");
+    } finally {
+      setBusy("");
+    }
+  }
+
   const pages = Math.max(1, Math.ceil(total / pageSize));
-  const roleLabel = (role: string) => (role === "lead" ? "Head" : role === "admin" ? "Admin" : "Staff");
+  const roleLabel = (role: string) => (role === "lead" ? "Head" : role === "admin" ? "Superadmin" : "Staff");
 
   return (
     <section>
       <header className="border-b border-line px-4 py-5 min-[880px]:px-8">
-        <button type="button" className="text-[14px] text-action" onClick={() => router.push("/monitor")}>
-          Monitor
-        </button>
-        <h1 className="mt-2 text-[22px] font-semibold">Directory</h1>
-        <p className="mt-1 text-[15px] text-ink-soft">Departments, heads, and staff. There is no public sign-up.</p>
+        {superadmin ? (
+          <button type="button" className="text-[14px] text-action" onClick={() => router.push("/monitor")}>
+            Monitor
+          </button>
+        ) : null}
+        <h1 className="mt-2 text-[22px] font-semibold">{superadmin ? "Directory" : "People"}</h1>
+        <p className="mt-1 max-w-[62ch] text-[15px] text-ink-soft">
+          {superadmin
+            ? "Add, edit, and delete people. A superadmin is an IT / Software account and can see the whole site. A department head only sees their own people and assigns tickets in their queue."
+            : "People in your department. Assign someone from a ticket in your queue."}
+        </p>
       </header>
-      <div className="grid gap-6 border-b border-line px-4 py-5 min-[880px]:grid-cols-2 min-[880px]:px-8">
+      {superadmin ? <div className="grid gap-6 border-b border-line px-4 py-5 min-[880px]:grid-cols-2 min-[880px]:px-8">
         <form onSubmit={addDepartment} className="lift grid gap-3 rounded-[22px] p-4">
           <h2 className="text-[16px] font-semibold">New department</h2>
           <input name="name" required placeholder="Department name" className="h-11 rounded-[10px] border border-line bg-surface px-3" />
@@ -379,7 +441,7 @@ export function Directory() {
           <select name="role" className="h-11 rounded-[10px] border border-line bg-surface px-3" defaultValue="member">
             <option value="member">Member</option>
             <option value="lead">Department head</option>
-            <option value="admin">Admin</option>
+            <option value="admin">Superadmin</option>
           </select>
           <select name="departmentSlug" className="h-11 rounded-[10px] border border-line bg-surface px-3" defaultValue={catalog[0]?.slug}>
             {catalog.map((department) => (
@@ -392,11 +454,12 @@ export function Directory() {
             <input name="queueRecipient" type="checkbox" />
             Copy them on the department queue
           </label>
+          <p className="text-[13px] leading-5 text-muted">Superadmin is only for IT / Software.</p>
           <button type="submit" disabled={pending === "person"} className="h-11 rounded-[10px] bg-action text-[14px] font-semibold text-white disabled:opacity-40">
             <PendingLabel pending={pending === "person"} idle="Add person" busy="Saving…" />
           </button>
         </form>
-      </div>
+      </div> : null}
       <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-4 min-[880px]:px-8">
         <input
           value={query}
@@ -404,14 +467,16 @@ export function Directory() {
           placeholder="Search name or email"
           className="h-11 min-w-56 flex-1 rounded-[10px] border border-line bg-surface px-3 text-[14px]"
         />
-        <select value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)} className="h-11 rounded-[10px] border border-line bg-surface px-3 text-[14px]">
-          <option value="">All departments</option>
-          {catalog.map((department) => (
-            <option key={department.slug} value={department.slug}>
-              {department.name}
-            </option>
-          ))}
-        </select>
+        {superadmin ? (
+          <select value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)} className="h-11 rounded-[10px] border border-line bg-surface px-3 text-[14px]">
+            <option value="">All departments</option>
+            {catalog.map((department) => (
+              <option key={department.slug} value={department.slug}>
+                {department.name}
+              </option>
+            ))}
+          </select>
+        ) : null}
         {loadingPeople ? <Spinner className="size-4 text-action" label="Loading people" /> : <p className="text-[13px] text-muted">{total === 1 ? "1 person" : `${total} people`}</p>}
       </div>
       {notice ? <p className="px-4 pt-4 text-[14px] text-action min-[880px]:px-8">{notice}</p> : null}
@@ -430,7 +495,11 @@ export function Directory() {
                 {roleLabel(person.role)} · {catalog.find((item) => item.slug === person.departmentSlug)?.name || person.departmentSlug}
               </span>
             </div>
+            {superadmin ? (
             <div className="mt-2 flex flex-wrap gap-3">
+              <button type="button" className="text-[14px] text-action" onClick={() => setEditFor(editFor === person.id ? null : person.id)}>
+                Edit
+              </button>
               {person.role !== "lead" && person.role !== "admin" ? (
                 <button type="button" disabled={busy === `head:${person.id}`} className="inline-flex items-center gap-2 text-[14px] text-action disabled:opacity-60" onClick={() => makeHead(person)}>
                   {busy === `head:${person.id}` ? <Spinner className="size-4 text-current" label="Saving" /> : null}
@@ -440,7 +509,39 @@ export function Directory() {
               <button type="button" className="text-[14px] text-action" onClick={() => setResetFor(resetFor === person.id ? null : person.id)}>
                 Set a new password
               </button>
+              {me?.id === person.id ? null : (
+                <button type="button" disabled={busy === `delete:${person.id}`} className="inline-flex items-center gap-2 text-[14px] text-danger disabled:opacity-60" onClick={() => void removePerson(person)}>
+                  {busy === `delete:${person.id}` ? <Spinner className="size-4 text-current" label="Deleting" /> : null}
+                  {busy === `delete:${person.id}` ? "Deleting…" : "Delete"}
+                </button>
+              )}
             </div>
+            ) : null}
+            {editFor === person.id ? (
+              <form onSubmit={(event) => savePerson(event, person)} className="mt-3 grid gap-2 min-[760px]:grid-cols-2">
+                <input name="name" required defaultValue={person.name} className="h-11 rounded-[10px] border border-line bg-surface px-3" />
+                <input name="email" type="email" required defaultValue={person.email || ""} className="h-11 rounded-[10px] border border-line bg-surface px-3" />
+                <select name="role" defaultValue={person.role} className="h-11 rounded-[10px] border border-line bg-surface px-3">
+                  <option value="member">Member</option>
+                  <option value="lead">Department head</option>
+                  <option value="admin">Superadmin</option>
+                </select>
+                <select name="departmentSlug" defaultValue={person.departmentSlug} className="h-11 rounded-[10px] border border-line bg-surface px-3">
+                  {catalog.map((department) => (
+                    <option key={department.slug} value={department.slug}>
+                      {department.name}
+                    </option>
+                  ))}
+                </select>
+                <label className="flex items-center gap-2 text-[14px]">
+                  <input name="active" type="checkbox" defaultChecked={person.active} />
+                  Active
+                </label>
+                <button type="submit" disabled={busy === `edit:${person.id}`} className="h-11 rounded-[10px] bg-action px-4 text-[14px] font-semibold text-white disabled:opacity-40">
+                  <PendingLabel pending={busy === `edit:${person.id}`} idle="Save" busy="Saving…" />
+                </button>
+              </form>
+            ) : null}
             {resetFor === person.id ? (
               <form onSubmit={(event) => resetPassword(event, person)} className="mt-2 flex flex-wrap gap-2">
                 <input name="password" required minLength={10} type="text" placeholder="New password, at least 10 characters" className="h-11 min-w-64 flex-1 rounded-[10px] border border-line bg-surface px-3" />

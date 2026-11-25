@@ -150,7 +150,23 @@ async function requireUser(request: Request) {
 }
 
 function requireAdmin(user: User) {
-  if (user.role !== "admin") throw new HttpError(403, "forbidden", "Only an admin can do that.");
+  if (user.role !== "admin") throw new HttpError(403, "forbidden", "Only a superadmin can do that.");
+}
+
+function requireSuperadminHome(role: string, department: string) {
+  if (role === "admin" && department !== "it-software") {
+    throw new HttpError(422, "validation", "A superadmin has to be in IT / Software.", {
+      departmentSlug: "A superadmin has to be in IT / Software.",
+    });
+  }
+}
+
+async function keepOneSuperadmin(id: string) {
+  const rows = await q<{ n: number }>(
+    `SELECT count(*)::int AS n FROM users WHERE role = 'admin' AND active = true AND id <> $1`,
+    [id],
+  );
+  if (Number(rows[0]?.n ?? 0) < 1) throw new HttpError(422, "validation", "Keep at least one superadmin.");
 }
 
 async function ticketRow(id: string) {
@@ -714,7 +730,8 @@ export async function handle(method: string, path: string[], request: Request): 
 
     if (key === "GET people") {
       const user = await requireUser(request);
-      const department = url.searchParams.get("department");
+      let department = url.searchParams.get("department");
+      if (user.role !== "admin" && !department) department = user.departmentSlug;
       if (department && !(await departmentName(department))) throw new HttpError(422, "validation", "That department is not valid.");
       const query = url.searchParams.get("q")?.trim() || "";
       const offset = Math.max(0, Math.floor(Number(url.searchParams.get("offset") || 0) || 0));
@@ -747,7 +764,7 @@ export async function handle(method: string, path: string[], request: Request): 
               departmentSlug: row.department_slug as DepartmentSlug,
               active: Boolean(row.active),
             },
-            user.role === "admin",
+            user.role === "admin" || (user.role === "lead" && department === user.departmentSlug),
           ),
         ),
       });
@@ -761,16 +778,18 @@ export async function handle(method: string, path: string[], request: Request): 
       const email = emailField(body.email);
       const password = textField(body.password, "Password", 10, 200);
       if (!isRole(String(body.role))) throw new HttpError(422, "validation", "Choose a role.", { role: "Choose a role." });
-      await requireDepartment(String(body.departmentSlug));
+      const departmentSlug = body.role === "admin" ? "it-software" : String(body.departmentSlug);
+      requireSuperadminHome(String(body.role), departmentSlug);
+      await requireDepartment(departmentSlug);
       const taken = await q(`SELECT 1 FROM users WHERE lower(email) = lower($1)`, [email]);
       if (taken.length) return json({ error: { code: "conflict", message: "That email is already in use." } }, 409);
       const id = randomUUID();
       await q(
         `INSERT INTO users (id, email, name, password_hash, role, department_slug, active) VALUES ($1,$2,$3,$4,$5,$6,true)`,
-        [id, email, name, await hashPassword(password), body.role, body.departmentSlug],
+        [id, email, name, await hashPassword(password), body.role, departmentSlug],
       );
       if (body.queueRecipient === true) {
-        await q(`INSERT INTO department_recipients (department_slug, user_id) VALUES ($1, $2)`, [body.departmentSlug, id]);
+        await q(`INSERT INTO department_recipients (department_slug, user_id) VALUES ($1, $2)`, [departmentSlug, id]);
       }
       if (Array.isArray(body.watches)) {
         for (const slug of body.watches) {
@@ -794,14 +813,17 @@ export async function handle(method: string, path: string[], request: Request): 
       const department = body.departmentSlug === undefined ? current.departmentSlug : body.departmentSlug;
       const active = body.active === undefined ? current.active : Boolean(body.active);
       if (!isRole(String(role))) throw new HttpError(422, "validation", "Choose a role.", { role: "Choose a role." });
-      await requireDepartment(String(department));
+      const nextDepartment = role === "admin" ? "it-software" : String(department);
+      requireSuperadminHome(String(role), nextDepartment);
+      if (current.role === "admin" && (role !== "admin" || active !== true)) await keepOneSuperadmin(current.id);
+      await requireDepartment(nextDepartment);
       const taken = await q(`SELECT id FROM users WHERE lower(email) = lower($1) AND id <> $2`, [email, current.id]);
       if (taken.length) return json({ error: { code: "conflict", message: "That email is already in use." } }, 409);
       if (body.password !== undefined) {
         const password = textField(body.password, "Password", 10, 200);
         await q(
           `UPDATE users SET name = $2, email = $3, role = $4, department_slug = $5, active = $6, password_hash = $7 WHERE id = $1`,
-          [current.id, name, email, role, department, active, await hashPassword(password)],
+          [current.id, name, email, role, nextDepartment, active, await hashPassword(password)],
         );
         const door = String(role) === "admin" ? "/admin" : "/login";
         await sendMail({
@@ -826,17 +848,17 @@ export async function handle(method: string, path: string[], request: Request): 
           name,
           email,
           role,
-          department,
+          nextDepartment,
           active,
         ]);
       }
-      if (department !== current.departmentSlug) {
+      if (nextDepartment !== current.departmentSlug) {
         await q(`DELETE FROM department_recipients WHERE user_id = $1`, [current.id]);
       }
       if (body.queueRecipient !== undefined) {
-        await q(`DELETE FROM department_recipients WHERE user_id = $1 AND department_slug = $2`, [current.id, department]);
+        await q(`DELETE FROM department_recipients WHERE user_id = $1 AND department_slug = $2`, [current.id, nextDepartment]);
         if (body.queueRecipient === true) {
-          await q(`INSERT INTO department_recipients (department_slug, user_id) VALUES ($1, $2)`, [department, current.id]);
+          await q(`INSERT INTO department_recipients (department_slug, user_id) VALUES ($1, $2)`, [nextDepartment, current.id]);
         }
       }
       if (Array.isArray(body.watches)) {
@@ -847,6 +869,33 @@ export async function handle(method: string, path: string[], request: Request): 
         }
       }
       return json(person((await userById(current.id)) as User, true));
+    }
+
+    if (method === "DELETE" && path[0] === "people" && path.length === 2) {
+      const user = await requireUser(request);
+      requireAdmin(user);
+      const current = await userById(path[1]);
+      if (!current) throw new HttpError(404, "not_found", "That person does not exist.");
+      if (current.id === user.id) throw new HttpError(422, "validation", "You cannot delete your own account.");
+      if (current.role === "admin") await keepOneSuperadmin(current.id);
+      const used = await q<{ n: number }>(
+        `SELECT (
+           (SELECT count(*) FROM tickets WHERE requester_id = $1 OR assignee_id = $1) +
+           (SELECT count(*) FROM messages WHERE author_id = $1) +
+           (SELECT count(*) FROM notifications WHERE actor_id = $1) +
+           (SELECT count(*) FROM outreaches WHERE actor_id = $1)
+         )::int AS n`,
+        [current.id],
+      );
+      if (Number(used[0]?.n ?? 0) > 0) {
+        await q(`UPDATE users SET active = false WHERE id = $1`, [current.id]);
+        await q(`DELETE FROM sessions WHERE user_id = $1`, [current.id]);
+        return json({ removed: false, disabled: true, person: person((await userById(current.id)) as User, true) });
+      }
+      await q(`DELETE FROM department_recipients WHERE user_id = $1`, [current.id]);
+      await q(`DELETE FROM sessions WHERE user_id = $1`, [current.id]);
+      await q(`DELETE FROM users WHERE id = $1`, [current.id]);
+      return json({ removed: true, disabled: false });
     }
 
     if (key === "GET tickets") return json(await listTickets(await requireUser(request), url));

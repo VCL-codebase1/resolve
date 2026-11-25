@@ -48,8 +48,9 @@ function Chrome({ children }: { children: React.ReactNode }) {
   const department = departments.find((item) => item.slug === me?.departmentSlug)?.name;
   const roleName = me?.role ?? knownRole;
   const isAdmin = roleName === "admin";
+  const isLead = roleName === "lead";
   const monitor = isAdmin ? (badges.monitor?.raised ?? 0) + (badges.monitor?.pending ?? 0) : 0;
-  const role = roleName === "admin" ? "Admin" : roleName === "lead" ? "Head" : roleName ? "Staff" : "";
+  const role = roleName === "admin" ? "Superadmin" : roleName === "lead" ? "Head" : roleName ? "Staff" : "";
 
   useEffect(() => {
     setKnownRole(sessionStorage.getItem("desk-role"));
@@ -92,6 +93,7 @@ function Chrome({ children }: { children: React.ReactNode }) {
           <NavLink href="/alerts" label="Alerts" count={badges.alerts} alert />
           {isAdmin ? <NavLink href="/monitor" label="Monitor" count={monitor} /> : null}
           {isAdmin ? <NavLink href="/directory" label="Directory" count={0} /> : null}
+          {isLead ? <NavLink href="/directory" label="People" count={0} /> : null}
         </nav>
         <div className="mt-auto flex flex-col gap-1">
           <ThemeToggle />
@@ -140,12 +142,13 @@ function Chrome({ children }: { children: React.ReactNode }) {
         </div>
       </div>
       <nav className="glass fixed inset-x-3 bottom-3 z-30 rounded-[22px] p-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] min-[880px]:hidden">
-        <div className={`grid h-12 ${isAdmin ? "grid-cols-5" : "grid-cols-3"}`}>
+        <div className={`grid h-12 ${isAdmin ? "grid-cols-5" : isLead ? "grid-cols-4" : "grid-cols-3"}`}>
           <Tab href="/inbox" label="Inbox" count={badges.inbox} />
           <Tab href="/queue" label="Queue" count={badges.queue} />
           <Tab href="/alerts" label="Alerts" count={badges.alerts} alert />
           {isAdmin ? <Tab href="/monitor" label="Monitor" count={monitor} /> : null}
           {isAdmin ? <Tab href="/directory" label="Directory" count={0} /> : null}
+          {isLead ? <Tab href="/directory" label="People" count={0} /> : null}
         </div>
       </nav>
       {profile && me ? (
