@@ -57,15 +57,15 @@ export function Composer() {
       <form
         onClick={(event) => event.stopPropagation()}
         onSubmit={onSubmit}
-        className="glass max-h-[92dvh] w-full overflow-auto rounded-t-[28px] min-[760px]:max-w-lg min-[760px]:rounded-[28px]"
+        className="glass max-h-[min(92dvh,100%)] w-full overflow-auto rounded-t-[28px] pb-[env(safe-area-inset-bottom)] min-[760px]:max-w-lg min-[760px]:rounded-[28px] min-[760px]:pb-0"
       >
-        <div className="flex h-14 items-center justify-between px-5">
+        <div className="sticky top-0 z-10 flex h-14 items-center justify-between border-b border-white/40 bg-inherit px-4 min-[480px]:px-5">
           <h2 className="text-[16px] font-semibold">New ticket</h2>
-          <button type="button" className="h-11 text-[14px] text-action" onClick={() => setComposer(false)}>
+          <button type="button" className="h-11 px-1 text-[14px] text-action" onClick={() => setComposer(false)}>
             Cancel
           </button>
         </div>
-        <div className="flex flex-col gap-4 px-5 py-5">
+        <div className="flex flex-col gap-4 px-4 py-5 min-[480px]:px-5">
           <label className="flex flex-col gap-1 text-[14px] font-medium">
             Title
             <input name="title" required maxLength={120} className="h-11 rounded-[10px] border border-line bg-surface px-3 font-normal outline-none" />
@@ -161,12 +161,12 @@ export function LoginForm({ admin = false }: { admin?: boolean }) {
   }
 
   return (
-    <main className="stage flex min-h-dvh items-center justify-center px-5">
+    <main className="stage flex min-h-dvh items-center justify-center px-4 py-8 min-[480px]:px-5">
       <ToastList notes={notes} dock={false} dismiss={(id) => setNotes((current) => current.filter((note) => note.id !== id))} />
-      <form onSubmit={onSubmit} className="pane w-full max-w-sm rounded-[28px] px-6 py-7">
-        <div className="flex items-center justify-between">
-          <Link href="/">
-            <Logo className="h-12 w-auto" />
+      <form onSubmit={onSubmit} className="pane w-full max-w-sm rounded-[22px] px-5 py-6 min-[480px]:rounded-[28px] min-[480px]:px-6 min-[480px]:py-7">
+        <div className="flex items-center justify-between gap-3">
+          <Link href="/" className="min-w-0">
+            <Logo className="h-10 w-auto max-w-[58vw] min-[480px]:h-12 min-[480px]:max-w-none" />
           </Link>
           <ThemeToggle />
         </div>

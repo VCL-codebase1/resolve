@@ -29,6 +29,14 @@ body {
   background: #dfe8f2;
   color: var(--color-ink);
   font-family: var(--font-sans);
+  overflow-x: clip;
+}
+
+img,
+svg,
+video {
+  max-width: 100%;
+  height: auto;
 }
 
 /* The wash is what the glass samples. It shifts slowly so the material reads as photochromic. */
@@ -58,6 +66,13 @@ input,
 textarea,
 select {
   font: inherit;
+}
+
+input,
+textarea,
+select,
+button {
+  touch-action: manipulation;
 }
 
 :focus-visible {

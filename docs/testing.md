@@ -99,7 +99,7 @@ Use Tunde (Sales) and Chioma (Exhibition lead).
 | --- | --- | --- | --- |
 | 39 | Live badges | Two sessions; raise toward the other’s queue | Badges move without refresh |
 | 40 | Mute | Sound off, then trigger an alert | Toast may show; no tone |
-| 41 | Mobile chrome | Narrow viewport | Bottom tabs; logo; profile; New ticket |
+| 41 | Mobile chrome | Narrow viewport (~375px) | Full-bleed header; logo fits; bottom tabs; stacked CTAs; forms full width; no horizontal scroll |
 
 ## Automated smoke (API)
 

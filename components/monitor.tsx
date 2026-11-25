@@ -113,7 +113,7 @@ export function Monitor() {
         <p className="mt-1 max-w-[62ch] text-[15px] leading-6 text-ink-soft">
           Raised is still open. Pending is in progress or waiting. Resolved is done and not closed yet.
         </p>
-        <div className="mt-5 grid grid-cols-2 gap-3 min-[760px]:grid-cols-4">
+        <div className="mt-5 grid grid-cols-1 gap-3 min-[400px]:grid-cols-2 min-[760px]:grid-cols-4">
           {sections.map(([key, name, hint]) => (
             <Link
               key={key}
@@ -134,16 +134,18 @@ export function Monitor() {
         {summary === null && loading ? <SpinnerBlock label="Loading departments" /> : null}
         <ul className="mt-2">
           {summary?.departments.map((item) => (
-            <li key={item.slug} className="flex items-center gap-3 border-t border-line px-4 py-3 min-[880px]:px-8">
+            <li key={item.slug} className="flex flex-col gap-2 border-t border-line px-4 py-3 min-[560px]:flex-row min-[560px]:items-center min-[560px]:gap-3 min-[880px]:px-8">
               <Link href={`/monitor?bucket=pending&department=${item.slug}`} className="min-w-0 flex-1">
                 <span className="block text-[15px]">{item.name}</span>
                 <span className="text-[13px] text-muted">{item.unresolved === 0 ? "Clear" : `${item.unresolved} unresolved`}</span>
               </Link>
-              {item.unresolved > 0 ? <span className="badge">{badgeText(item.unresolved)}</span> : null}
               {item.unresolved > 0 ? (
-                <button type="button" className="h-11 shrink-0 text-[14px] text-action" onClick={() => setReach(item)}>
-                  Reach out
-                </button>
+                <div className="flex items-center gap-3">
+                  <span className="badge">{badgeText(item.unresolved)}</span>
+                  <button type="button" className="h-11 shrink-0 text-[14px] text-action" onClick={() => setReach(item)}>
+                    Reach out
+                  </button>
+                </div>
               ) : null}
             </li>
           ))}
@@ -460,15 +462,15 @@ export function Directory() {
           </button>
         </form>
       </div> : null}
-      <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-4 min-[880px]:px-8">
+      <div className="flex flex-col gap-3 border-b border-line px-4 py-4 min-[560px]:flex-row min-[560px]:flex-wrap min-[560px]:items-center min-[880px]:px-8">
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search name or email"
-          className="h-11 min-w-56 flex-1 rounded-[10px] border border-line bg-surface px-3 text-[14px]"
+          className="h-11 w-full min-w-0 flex-1 rounded-[10px] border border-line bg-surface px-3 text-[14px] min-[560px]:min-w-56"
         />
         {superadmin ? (
-          <select value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)} className="h-11 rounded-[10px] border border-line bg-surface px-3 text-[14px]">
+          <select value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)} className="h-11 w-full rounded-[10px] border border-line bg-surface px-3 text-[14px] min-[560px]:w-auto">
             <option value="">All departments</option>
             {catalog.map((department) => (
               <option key={department.slug} value={department.slug}>
@@ -485,8 +487,8 @@ export function Directory() {
       <ul className={loadingPeople && people.length > 0 ? "opacity-60" : ""} aria-busy={loadingPeople}>
         {people.map((person) => (
           <li key={person.id} className="border-b border-line px-4 py-3 min-[880px]:px-8">
-            <div className="flex flex-wrap items-baseline justify-between gap-3">
-              <span className="text-[15px]">
+            <div className="flex flex-col gap-1 min-[560px]:flex-row min-[560px]:flex-wrap min-[560px]:items-baseline min-[560px]:justify-between min-[560px]:gap-3">
+              <span className="min-w-0 break-words text-[15px]">
                 {person.name}
                 {person.email ? ` · ${person.email}` : ""}
                 {!person.active ? " · Disabled" : ""}
@@ -496,7 +498,7 @@ export function Directory() {
               </span>
             </div>
             {superadmin ? (
-            <div className="mt-2 flex flex-wrap gap-3">
+            <div className="mt-2 flex flex-wrap gap-x-3 gap-y-2">
               <button type="button" className="text-[14px] text-action" onClick={() => setEditFor(editFor === person.id ? null : person.id)}>
                 Edit
               </button>
@@ -543,9 +545,9 @@ export function Directory() {
               </form>
             ) : null}
             {resetFor === person.id ? (
-              <form onSubmit={(event) => resetPassword(event, person)} className="mt-2 flex flex-wrap gap-2">
-                <input name="password" required minLength={10} type="text" placeholder="New password, at least 10 characters" className="h-11 min-w-64 flex-1 rounded-[10px] border border-line bg-surface px-3" />
-                <button type="submit" disabled={busy === `password:${person.id}`} className="h-11 rounded-[10px] bg-action px-4 text-[14px] font-semibold text-white disabled:opacity-40">
+              <form onSubmit={(event) => resetPassword(event, person)} className="mt-2 flex flex-col gap-2 min-[560px]:flex-row min-[560px]:flex-wrap">
+                <input name="password" required minLength={10} type="text" placeholder="New password, at least 10 characters" className="h-11 w-full min-w-0 flex-1 rounded-[10px] border border-line bg-surface px-3 min-[560px]:min-w-64" />
+                <button type="submit" disabled={busy === `password:${person.id}`} className="h-11 w-full rounded-[10px] bg-action px-4 text-[14px] font-semibold text-white disabled:opacity-40 min-[560px]:w-auto">
                   <PendingLabel pending={busy === `password:${person.id}`} idle="Save password" busy="Saving…" />
                 </button>
               </form>

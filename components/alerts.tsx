@@ -68,27 +68,27 @@ export function Alerts() {
 
   return (
     <section>
-      <div className="flex items-baseline justify-between border-b border-line px-4 py-5 min-[880px]:px-8">
-        <div>
+      <div className="flex flex-col gap-3 border-b border-line px-4 py-5 min-[560px]:flex-row min-[560px]:items-baseline min-[560px]:justify-between min-[880px]:px-8">
+        <div className="min-w-0">
           <h1 className="text-[22px] font-semibold tracking-tight">Alerts</h1>
           <p className="mt-1 text-[15px] text-ink-soft">Live notices for tickets you follow.</p>
         </div>
         <div className="flex items-center gap-3">
           {loading ? <Spinner className="size-4 text-action" label="Loading alerts" /> : null}
           <button
-          type="button"
-          className="h-11 text-[14px] text-action"
-          onClick={() => {
-            void api("/notifications/read", { method: "POST", body: JSON.stringify({ ids: [] }) })
-              .then(() => {
-                refresh();
-                toast("Alerts marked read.");
-              })
-              .catch((reason: unknown) => toast(said(reason, "Alerts could not be marked read."), "error"));
-          }}
-        >
-          Mark all read
-        </button>
+            type="button"
+            className="h-11 text-[14px] text-action"
+            onClick={() => {
+              void api("/notifications/read", { method: "POST", body: JSON.stringify({ ids: [] }) })
+                .then(() => {
+                  refresh();
+                  toast("Alerts marked read.");
+                })
+                .catch((reason: unknown) => toast(said(reason, "Alerts could not be marked read."), "error"));
+            }}
+          >
+            Mark all read
+          </button>
         </div>
       </div>
       <div className="border-b border-line px-4 py-3 min-[880px]:px-8">
@@ -96,16 +96,16 @@ export function Alerts() {
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search alerts"
-          className="h-11 w-full max-w-md rounded-[10px] border border-line bg-surface px-3 text-[14px]"
+          className="h-11 w-full rounded-[10px] border border-line bg-surface px-3 text-[14px] min-[560px]:max-w-md"
         />
       </div>
       {loading && items === null ? <SpinnerBlock label="Loading alerts" /> : null}
-      {!loading && items && items.length === 0 ? <p className="px-5 py-8 text-[16px]">No alerts.</p> : null}
+      {!loading && items && items.length === 0 ? <p className="px-4 py-8 text-[16px] min-[880px]:px-8">No alerts.</p> : null}
       <ul className={loading && items ? "opacity-60" : ""} aria-busy={loading}>
         {items?.map((item) => (
           <li key={item.id} className="border-b border-line">
             <Link href={item.ticketId ? `/tickets/${item.ticketId}` : "/queue"} onClick={() => void open(item)} className="block px-4 py-4 min-[880px]:px-8">
-              <p className={item.read ? "text-[16px]" : "text-[16px] font-semibold"}>{item.sentence}</p>
+              <p className={`break-words text-[15px] min-[480px]:text-[16px] ${item.read ? "" : "font-semibold"}`}>{item.sentence}</p>
               <p className="mt-1 text-[13px] text-muted">{relativeTime(item.createdAt)}</p>
             </Link>
           </li>

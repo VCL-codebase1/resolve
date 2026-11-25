@@ -92,10 +92,10 @@ export function Thread({ id }: { id: string }) {
   return (
     <article>
       <header className="sticky top-0 z-10 border-b border-line bg-surface/95 px-4 py-4 backdrop-blur min-[880px]:px-8">
-        <Link href="/inbox" className="text-[14px] text-action">
+        <Link href="/inbox" className="inline-flex min-h-11 items-center text-[14px] text-action">
           Inbox
         </Link>
-        <h1 className="mt-2 text-[22px] font-semibold leading-7 tracking-tight">{ticket.title}</h1>
+        <h1 className="mt-1 break-words text-[20px] font-semibold leading-7 tracking-tight min-[480px]:text-[22px]">{ticket.title}</h1>
         <p className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-[13px] leading-5 text-ink-soft">
           <span className="font-mono">{ticket.id}</span>
           <span>
@@ -111,12 +111,12 @@ export function Thread({ id }: { id: string }) {
         </p>
       ) : null}
       {manage && !closed ? (
-        <div className="mt-6 flex flex-wrap items-center gap-2">
+        <div className="mt-6 flex flex-col gap-2 min-[560px]:flex-row min-[560px]:flex-wrap min-[560px]:items-center">
           {saving ? <Spinner className="size-4 text-action" label="Saving" /> : null}
           <select
             value={ticket.assignee?.id || ""}
             onChange={(event) => patch({ assigneeId: event.target.value || null }, event.target.value ? "Ticket assigned." : "Ticket unassigned.")}
-            className="h-11 rounded-[10px] border border-line bg-surface px-3 text-[14px]"
+            className="h-11 w-full rounded-[10px] border border-line bg-surface px-3 text-[14px] min-[560px]:w-auto"
           >
             <option value="">Unassigned</option>
             {people.map((person) => (
@@ -181,7 +181,7 @@ export function Thread({ id }: { id: string }) {
           </label>
           <textarea id="reply" name="body" required value={reply} onChange={(event) => setReply(event.target.value)} rows={4} className="rounded-[10px] border border-line bg-surface px-3 py-2" />
           <input name="file" type="file" accept="image/png,image/jpeg,image/webp,application/pdf" className="max-w-full text-[14px]" />
-          <button type="submit" disabled={pending} className="h-11 self-start rounded-[10px] bg-action px-4 text-[14px] font-semibold text-white disabled:opacity-40">
+          <button type="submit" disabled={pending} className="h-11 w-full rounded-[10px] bg-action px-4 text-[14px] font-semibold text-white disabled:opacity-40 min-[480px]:w-auto min-[480px]:self-start">
             <PendingLabel pending={pending} idle="Reply" busy="Sending…" />
           </button>
         </form>

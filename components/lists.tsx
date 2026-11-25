@@ -118,7 +118,7 @@ export function WorkList({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="Search title or ticket number"
-            className="mt-4 h-11 w-full max-w-md rounded-[10px] border border-line bg-surface px-3 text-[14px]"
+            className="mt-4 h-11 w-full rounded-[10px] border border-line bg-surface px-3 text-[14px] min-[560px]:max-w-md"
           />
           {!bucket ? (
             <div className="-mx-4 mt-4 flex gap-2 overflow-x-auto px-4 pb-1 min-[880px]:mx-0 min-[880px]:px-0">
@@ -145,12 +145,12 @@ export function WorkList({
         <ul className={loading && items ? "opacity-60" : ""} aria-busy={loading}>
           {items?.map((ticket) => (
             <li key={ticket.id} className="border-b border-line">
-              <Link href={`/tickets/${ticket.id}`} className="flex items-start gap-3 px-4 py-3 min-[880px]:px-8 hover:bg-wash">
+              <Link href={`/tickets/${ticket.id}`} className="flex items-start gap-3 px-4 py-3.5 min-[880px]:px-8 hover:bg-wash">
                 <span className={`mt-0.5 shrink-0 rounded-md px-2 py-1 text-[12px] font-medium ${chip[ticket.status]}`}>
                   {STATUS_LABEL[ticket.status]}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[15px] font-medium leading-5">{ticket.title}</span>
+                  <span className="block break-words text-[15px] font-medium leading-5">{ticket.title}</span>
                   <span className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[13px] leading-5 text-muted">
                     <span className="font-mono">{ticket.id}</span>
                     <span>

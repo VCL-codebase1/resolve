@@ -106,9 +106,9 @@ function Chrome({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col gap-0 min-[880px]:gap-3">
-        <header className="glass sticky top-0 z-30 flex h-16 w-full shrink-0 items-center gap-3 rounded-none border-b border-white/40 px-5 min-[880px]:h-[4.5rem] min-[880px]:rounded-[18px] min-[880px]:border-0 min-[880px]:px-5">
-          <Link href={isAdmin ? "/monitor" : "/inbox"} className="min-[880px]:hidden">
-            <Logo className="h-10 w-auto" />
+        <header className="glass sticky top-0 z-30 flex h-14 w-full shrink-0 items-center gap-2 border-b border-white/40 px-3 pt-[env(safe-area-inset-top)] min-[480px]:h-16 min-[480px]:gap-3 min-[480px]:px-5 min-[880px]:h-[4.5rem] min-[880px]:rounded-[18px] min-[880px]:border-0">
+          <Link href={isAdmin ? "/monitor" : "/inbox"} className="min-w-0 shrink min-[880px]:hidden">
+            <Logo className="h-8 w-auto max-w-[38vw] min-[480px]:h-10 min-[480px]:max-w-[46vw]" />
           </Link>
           <p className="hidden min-w-0 items-center truncate text-[14px] text-muted min-[880px]:flex">
             {me ? (
@@ -119,7 +119,7 @@ function Chrome({ children }: { children: React.ReactNode }) {
               <Spinner className="size-4 text-muted" label="Loading your desk" />
             )}
           </p>
-          <div className="ml-auto flex shrink-0 items-center gap-2">
+          <div className="ml-auto flex shrink-0 items-center gap-1.5 min-[480px]:gap-2">
             <span className="min-[880px]:hidden">
               <ThemeToggle />
             </span>
@@ -131,29 +131,30 @@ function Chrome({ children }: { children: React.ReactNode }) {
             >
               {me ? initials(me.name) : <Spinner className="size-4 text-action" label="Loading profile" />}
             </button>
-            <button type="button" className="h-10 rounded-full bg-action px-4 text-[14px] font-semibold text-white" onClick={() => setComposer(true)}>
-              New ticket
+            <button type="button" className="h-10 rounded-full bg-action px-3 text-[13px] font-semibold text-white min-[480px]:px-4 min-[480px]:text-[14px]" onClick={() => setComposer(true)}>
+              <span className="min-[480px]:hidden">New</span>
+              <span className="hidden min-[480px]:inline">New ticket</span>
             </button>
           </div>
         </header>
         <ToastList notes={notes} dismiss={dismiss} />
-        <div className="pane min-h-[calc(100dvh-4rem)] overflow-hidden rounded-none min-[880px]:min-h-0 min-[880px]:flex-1 min-[880px]:rounded-[22px]">
-          <div className="h-full overflow-auto pb-28 min-[880px]:pb-6">{children}</div>
+        <div className="pane min-h-[calc(100dvh-3.5rem)] overflow-hidden rounded-none min-[880px]:min-h-0 min-[880px]:flex-1 min-[880px]:rounded-[22px]">
+          <div className="h-full overflow-auto pb-[calc(6.5rem+env(safe-area-inset-bottom))] min-[880px]:pb-6">{children}</div>
         </div>
       </div>
-      <nav className="glass fixed inset-x-3 bottom-3 z-30 rounded-[22px] p-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] min-[880px]:hidden">
+      <nav className="glass fixed inset-x-2 bottom-2 z-30 rounded-[22px] p-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] min-[480px]:inset-x-3 min-[480px]:bottom-3 min-[880px]:hidden">
         <div className={`grid h-12 ${isAdmin ? "grid-cols-5" : isLead ? "grid-cols-4" : "grid-cols-3"}`}>
           <Tab href="/inbox" label="Inbox" count={badges.inbox} />
           <Tab href="/queue" label="Queue" count={badges.queue} />
           <Tab href="/alerts" label="Alerts" count={badges.alerts} alert />
           {isAdmin ? <Tab href="/monitor" label="Monitor" count={monitor} /> : null}
-          {isAdmin ? <Tab href="/directory" label="Directory" count={0} /> : null}
+          {isAdmin ? <Tab href="/directory" label="People" count={0} /> : null}
           {isLead ? <Tab href="/directory" label="People" count={0} /> : null}
         </div>
       </nav>
       {profile && me ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-[rgba(8,22,52,0.28)] min-[760px]:items-center" onClick={() => setProfile(false)}>
-          <section onClick={(event) => event.stopPropagation()} className="pane w-full rounded-t-[28px] px-6 py-6 min-[760px]:max-w-sm min-[760px]:rounded-[28px]">
+          <section onClick={(event) => event.stopPropagation()} className="pane w-full rounded-t-[28px] px-5 py-6 pb-[calc(1.5rem+env(safe-area-inset-bottom))] min-[480px]:px-6 min-[760px]:max-w-sm min-[760px]:rounded-[28px] min-[760px]:pb-6">
             <div className="flex items-center gap-4">
               <span className="flex size-14 items-center justify-center rounded-full bg-action text-[18px] font-semibold text-white">
                 {initials(me.name)}
