@@ -153,7 +153,7 @@ export function Monitor() {
       <WorkList embedded bucket={bucket} department={department || undefined} title={title} lede="Tickets in this section, newest activity first." />
       {reach ? (
         <div className="fixed inset-0 z-50 flex items-end bg-[rgba(8,22,52,0.35)] min-[880px]:items-center min-[880px]:justify-center" onClick={() => setReach(null)}>
-          <form onClick={(event) => event.stopPropagation()} onSubmit={send} className="glass w-full rounded-t-[28px] p-5 min-[880px]:max-w-lg min-[880px]:rounded-[28px]">
+          <form onClick={(event) => event.stopPropagation()} onSubmit={send} className="glass max-h-[90dvh] w-full overflow-y-auto rounded-t-[28px] p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] min-[880px]:max-w-lg min-[880px]:rounded-[28px]">
             <h2 className="text-[18px] font-semibold">Send to {reach.name}</h2>
             <p className="mt-1 text-[14px] text-ink-soft">Queue recipients get an alert and an email. This does not open a new ticket.</p>
             <textarea required value={note} onChange={(event) => setNote(event.target.value)} rows={5} maxLength={2000} className="mt-4 w-full rounded-[10px] border border-line px-3 py-2" />
@@ -426,14 +426,14 @@ export function Directory() {
         </p>
       </header>
       {superadmin ? <div className="grid gap-6 border-b border-line px-4 py-5 min-[880px]:grid-cols-2 min-[880px]:px-8">
-        <form onSubmit={addDepartment} className="lift grid gap-3 rounded-[22px] p-4">
+        <form onSubmit={addDepartment} className="lift grid min-w-0 gap-3 rounded-[22px] p-4">
           <h2 className="text-[16px] font-semibold">New department</h2>
           <input name="name" required placeholder="Department name" className="h-11 rounded-[10px] border border-line bg-surface px-3" />
           <button type="submit" disabled={pending === "department"} className="h-11 rounded-[10px] bg-action text-[14px] font-semibold text-white disabled:opacity-40">
             <PendingLabel pending={pending === "department"} idle="Add department" busy="Saving…" />
           </button>
         </form>
-        <form onSubmit={addPerson} className="lift grid gap-3 rounded-[22px] p-4">
+        <form onSubmit={addPerson} className="lift grid min-w-0 gap-3 rounded-[22px] p-4">
           <h2 className="text-[16px] font-semibold">Add a person</h2>
           <input name="name" required placeholder="Name" className="h-11 rounded-[10px] border border-line bg-surface px-3" />
           <input name="email" type="email" required placeholder="Work email" className="h-11 rounded-[10px] border border-line bg-surface px-3" />
@@ -465,10 +465,10 @@ export function Directory() {
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search name or email"
-          className="h-11 min-w-56 flex-1 rounded-[10px] border border-line bg-surface px-3 text-[14px]"
+          className="h-11 min-w-0 basis-full flex-1 min-[560px]:basis-56 rounded-[10px] border border-line bg-surface px-3 text-[14px]"
         />
         {superadmin ? (
-          <select value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)} className="h-11 rounded-[10px] border border-line bg-surface px-3 text-[14px]">
+          <select value={departmentFilter} onChange={(event) => setDepartmentFilter(event.target.value)} className="h-11 w-full min-w-0 rounded-[10px] border border-line bg-surface px-3 text-[14px] min-[560px]:w-auto">
             <option value="">All departments</option>
             {catalog.map((department) => (
               <option key={department.slug} value={department.slug}>
@@ -486,7 +486,7 @@ export function Directory() {
         {people.map((person) => (
           <li key={person.id} className="border-b border-line px-4 py-3 min-[880px]:px-8">
             <div className="flex flex-wrap items-baseline justify-between gap-3">
-              <span className="text-[15px]">
+              <span className="min-w-0 break-words text-[15px] [overflow-wrap:anywhere]">
                 {person.name}
                 {person.email ? ` · ${person.email}` : ""}
                 {!person.active ? " · Disabled" : ""}
@@ -518,7 +518,7 @@ export function Directory() {
             </div>
             ) : null}
             {editFor === person.id ? (
-              <form onSubmit={(event) => savePerson(event, person)} className="mt-3 grid gap-2 min-[760px]:grid-cols-2">
+              <form onSubmit={(event) => savePerson(event, person)} className="mt-3 grid min-w-0 gap-2 min-[760px]:grid-cols-2">
                 <input name="name" required defaultValue={person.name} className="h-11 rounded-[10px] border border-line bg-surface px-3" />
                 <input name="email" type="email" required defaultValue={person.email || ""} className="h-11 rounded-[10px] border border-line bg-surface px-3" />
                 <select name="role" defaultValue={person.role} className="h-11 rounded-[10px] border border-line bg-surface px-3">
@@ -544,7 +544,7 @@ export function Directory() {
             ) : null}
             {resetFor === person.id ? (
               <form onSubmit={(event) => resetPassword(event, person)} className="mt-2 flex flex-wrap gap-2">
-                <input name="password" required minLength={10} type="text" placeholder="New password, at least 10 characters" className="h-11 min-w-64 flex-1 rounded-[10px] border border-line bg-surface px-3" />
+                <input name="password" required minLength={10} type="text" placeholder="New password, at least 10 characters" className="h-11 min-w-0 basis-full flex-1 min-[560px]:basis-64 rounded-[10px] border border-line bg-surface px-3" />
                 <button type="submit" disabled={busy === `password:${person.id}`} className="h-11 rounded-[10px] bg-action px-4 text-[14px] font-semibold text-white disabled:opacity-40">
                   <PendingLabel pending={busy === `password:${person.id}`} idle="Save password" busy="Saving…" />
                 </button>

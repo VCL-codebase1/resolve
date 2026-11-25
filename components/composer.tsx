@@ -65,7 +65,7 @@ export function Composer() {
             Cancel
           </button>
         </div>
-        <div className="flex flex-col gap-4 px-5 py-5">
+        <div className="flex min-w-0 flex-col gap-4 px-5 pt-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
           <label className="flex flex-col gap-1 text-[14px] font-medium">
             Title
             <input name="title" required maxLength={120} className="h-11 rounded-[10px] border border-line bg-surface px-3 font-normal outline-none" />
@@ -98,7 +98,7 @@ export function Composer() {
           </label>
           <label className="flex flex-col gap-1 text-[14px] font-medium">
             File
-            <input name="file" type="file" accept="image/png,image/jpeg,image/webp,application/pdf" className="text-[14px] font-normal" />
+            <input name="file" type="file" accept="image/png,image/jpeg,image/webp,application/pdf" className="max-w-full text-[14px] font-normal" />
           </label>
           {error ? <p className="text-[14px] text-danger">{error}</p> : null}
           <button type="submit" disabled={pending} className="h-11 rounded-[10px] bg-action text-[14px] font-semibold text-white disabled:opacity-40">
@@ -161,12 +161,12 @@ export function LoginForm({ admin = false }: { admin?: boolean }) {
   }
 
   return (
-    <main className="stage flex min-h-dvh items-center justify-center px-5">
+    <main className="stage flex min-h-dvh items-center justify-center px-4 py-6">
       <ToastList notes={notes} dock={false} dismiss={(id) => setNotes((current) => current.filter((note) => note.id !== id))} />
       <form onSubmit={onSubmit} className="pane w-full max-w-sm rounded-[28px] px-6 py-7">
         <div className="flex items-center justify-between">
           <Link href="/">
-            <Logo className="h-12 w-auto" />
+            <Logo className="h-auto w-36 min-[400px]:w-44" />
           </Link>
           <ThemeToggle />
         </div>

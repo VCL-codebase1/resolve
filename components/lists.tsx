@@ -150,8 +150,8 @@ export function WorkList({
                   {STATUS_LABEL[ticket.status]}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-[15px] font-medium leading-5">{ticket.title}</span>
-                  <span className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 text-[13px] leading-5 text-muted">
+                  <span className="block break-words text-[15px] font-medium leading-5 [overflow-wrap:anywhere]">{ticket.title}</span>
+                  <span className="mt-1 flex flex-wrap gap-x-2 gap-y-0.5 [overflow-wrap:anywhere] text-[13px] leading-5 text-muted">
                     <span className="font-mono">{ticket.id}</span>
                     <span>
                       {names(departments, ticket.sourceDepartment)} → {names(departments, ticket.targetDepartment)}

@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { LottieSvg } from "lottie-react";
-import { DEPARTMENT_NAMES, DEPARTMENT_SLUGS } from "@/lib/labels";
 import mark from "@/public/resolve-mark.json";
 import { api, type Me } from "./api";
 import { Logo, ThemeToggle } from "./brand";
@@ -34,21 +33,21 @@ export function Landing() {
 
   return (
     <div className="stage min-h-dvh text-ink">
-      <header className="glass fixed inset-x-0 top-0 z-20 flex h-20 w-full items-center justify-between border-b border-white/50 px-5 min-[840px]:h-24 min-[840px]:px-10">
+      <header className="glass fixed inset-x-0 top-0 z-20 flex h-20 w-full items-center justify-between border-b border-white/50 px-3 min-[400px]:px-5 min-[840px]:h-24 min-[840px]:px-10">
         <Link href="/" className="flex items-center">
-          <Logo className="h-12 w-auto min-[840px]:h-16" />
+          <Logo className="h-auto w-24 min-[400px]:w-32 min-[840px]:w-64" />
         </Link>
-        <div className="flex items-center gap-3">
+        <div className="flex shrink-0 items-center gap-2 min-[400px]:gap-3">
           <ThemeToggle />
           <Link href="/admin" className="text-[14px] text-action">
             Admin
           </Link>
           {me === undefined ? (
-            <span className="inline-flex h-11 items-center bg-action px-5 text-[14px] font-semibold text-white">
+            <span className="inline-flex h-11 items-center bg-action px-3 text-[14px] min-[400px]:px-5 font-semibold text-white">
               <Spinner className="size-4 text-white" label="Checking your session" />
             </span>
           ) : (
-            <Link href={enter} className="inline-flex h-11 items-center bg-action px-5 text-[14px] font-semibold text-white">
+            <Link href={enter} className="inline-flex h-11 items-center bg-action px-3 text-[14px] min-[400px]:px-5 font-semibold text-white">
               {me ? "Open desk" : "Sign in"}
             </Link>
           )}
@@ -78,9 +77,6 @@ export function Landing() {
                   {me ? "Continue to your desk" : "Staff sign in"}
                 </Link>
               )}
-              <a href="#departments" className="inline-flex h-11 items-center text-[15px] text-action">
-                Nine queues
-              </a>
             </div>
           </div>
 
@@ -104,64 +100,6 @@ export function Landing() {
                 <p className="mt-1 text-[14px] leading-6 text-ink-soft">{copy}</p>
               </article>
             ))}
-          </section>
-
-          <section className="grid gap-4 py-4 min-[840px]:grid-cols-2">
-            <article data-reveal className="lift rounded-[28px] p-5 shadow-[0_18px_40px_rgba(12,77,162,0.08)]">
-              <h2 className="text-[16px] font-semibold">Staff desk</h2>
-              <p className="mt-1 text-[14px] leading-6 text-ink-soft">Your tickets, and the queue for your department.</p>
-              <ul className="mt-3 border-t border-line text-[14px]">
-                <li className="flex justify-between gap-4 border-b border-line py-2.5">
-                  <span>Inbox</span>
-                  <span className="text-muted">Raised, assigned, or watched</span>
-                </li>
-                <li className="flex justify-between gap-4 border-b border-line py-2.5">
-                  <span>Queue</span>
-                  <span className="text-muted">Aimed at your department</span>
-                </li>
-                <li className="flex justify-between gap-4 py-2.5">
-                  <span>Alerts</span>
-                  <span className="text-muted">Replies and status changes</span>
-                </li>
-              </ul>
-            </article>
-            <article data-reveal className="lift rounded-[28px] p-5 shadow-[0_18px_40px_rgba(12,77,162,0.08)]">
-              <h2 className="text-[16px] font-semibold">Admin monitor</h2>
-              <p className="mt-1 text-[14px] leading-6 text-ink-soft">The same desk, plus a view across every queue.</p>
-              <ul className="mt-3 border-t border-line text-[14px]">
-                <li className="flex justify-between gap-4 border-b border-line py-2.5">
-                  <span>Raised</span>
-                  <span className="text-muted">Still open</span>
-                </li>
-                <li className="flex justify-between gap-4 border-b border-line py-2.5">
-                  <span>Pending</span>
-                  <span className="text-muted">In progress or waiting</span>
-                </li>
-                <li className="flex justify-between gap-4 border-b border-line py-2.5">
-                  <span>Resolved / Closed</span>
-                  <span className="text-muted">Finished work</span>
-                </li>
-                <li className="flex justify-between gap-4 py-2.5">
-                  <span>Reach out</span>
-                  <span className="text-muted">A note to a queue, not a new ticket</span>
-                </li>
-              </ul>
-            </article>
-          </section>
-
-          <section id="departments" className="py-8">
-            <div className="flex items-baseline justify-between gap-3">
-              <h2 className="text-[16px] font-semibold">Queues</h2>
-              <p className="text-[13px] text-muted">One home department each</p>
-            </div>
-            <ul className="mt-3 grid gap-2 min-[560px]:grid-cols-2 min-[840px]:grid-cols-3">
-              {DEPARTMENT_SLUGS.map((slug) => (
-                <li key={slug} data-reveal className="lift rounded-[22px] px-4 py-3 shadow-[0_12px_28px_rgba(12,77,162,0.06)]">
-                  <p className="text-[14px] leading-5">{DEPARTMENT_NAMES[slug]}</p>
-                  <p className="mt-0.5 font-mono text-[12px] text-muted">{slug}</p>
-                </li>
-              ))}
-            </ul>
           </section>
         </div>
       </main>

@@ -95,7 +95,7 @@ export function Thread({ id }: { id: string }) {
         <Link href="/inbox" className="text-[14px] text-action">
           Inbox
         </Link>
-        <h1 className="mt-2 text-[22px] font-semibold leading-7 tracking-tight">{ticket.title}</h1>
+        <h1 className="mt-2 break-words [overflow-wrap:anywhere] text-[22px] font-semibold leading-7 tracking-tight">{ticket.title}</h1>
         <p className="mt-2 flex flex-wrap gap-x-2 gap-y-1 text-[13px] leading-5 text-ink-soft">
           <span className="font-mono">{ticket.id}</span>
           <span>
@@ -156,7 +156,7 @@ export function Thread({ id }: { id: string }) {
       <div className="mt-8 flex flex-col gap-6">
         {ticket.messages.map((message) => (
           <section key={message.id}>
-            <p className="whitespace-pre-wrap text-[16px] leading-6">{message.body}</p>
+            <p className="whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[16px] leading-6">{message.body}</p>
             <p className="mt-2 text-[13px] text-muted">
               {message.author.name} · {label(departments, message.author.departmentSlug)} · {relativeTime(message.createdAt)}
             </p>
@@ -164,7 +164,7 @@ export function Thread({ id }: { id: string }) {
               <ul className="mt-2">
                 {message.attachments.map((file) => (
                   <li key={file.id}>
-                    <a className="text-[14px] text-action" href={`/api/v1/attachments/${file.id}`}>
+                    <a className="break-words [overflow-wrap:anywhere] text-[14px] text-action" href={`/api/v1/attachments/${file.id}`}>
                       {file.name}
                     </a>
                   </li>
@@ -193,7 +193,7 @@ export function Thread({ id }: { id: string }) {
         {receipts && receipts.length === 0 ? <p className="mt-2 text-[13px] text-muted">No email has been sent yet.</p> : null}
         <ul className="mt-2 flex flex-col gap-2">
           {receipts?.map((receipt) => (
-            <li key={receipt.id} className="font-mono text-[13px] text-ink-soft">
+            <li key={receipt.id} className="break-words font-mono text-[13px] text-ink-soft [overflow-wrap:anywhere]">
               {receipt.state} · {[...receipt.to, ...receipt.cc].join(", ") || "no recipients"}
             </li>
           ))}

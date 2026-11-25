@@ -14,9 +14,11 @@ function Tab({ href, label, count, alert }: { href: string; label: string; count
   const pathname = usePathname();
   const active = pathname === href || pathname.startsWith(`${href}/`) || (href === "/inbox" && pathname.startsWith("/tickets"));
   return (
-    <Link href={href} className={`flex h-full min-w-0 items-center justify-center gap-1 rounded-full px-1 text-[11px] ${active ? "bg-wash font-semibold text-ink" : "text-muted"}`}>
+    <Link href={href} className={`flex h-full min-w-0 flex-col items-center justify-center gap-0.5 rounded-[18px] px-0.5 text-[11px] ${active ? "bg-wash font-semibold text-ink" : "text-muted"}`}>
+      <span className="flex h-4 items-center">
+        {count > 0 ? <span className={alert ? "badge badge-alert" : "badge"}>{badgeText(count)}</span> : null}
+      </span>
       <span className="truncate">{label}</span>
-      {count > 0 ? <span className={alert ? "badge badge-alert" : "badge"}>{badgeText(count)}</span> : null}
     </Link>
   );
 }
@@ -106,9 +108,9 @@ function Chrome({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col gap-0 min-[880px]:gap-3">
-        <header className="glass sticky top-0 z-30 flex h-16 w-full shrink-0 items-center gap-3 rounded-none border-b border-white/40 px-5 min-[880px]:h-[4.5rem] min-[880px]:rounded-[18px] min-[880px]:border-0 min-[880px]:px-5">
-          <Link href={isAdmin ? "/monitor" : "/inbox"} className="min-[880px]:hidden">
-            <Logo className="h-10 w-auto" />
+        <header className="glass sticky top-0 z-30 flex h-16 w-full shrink-0 items-center gap-2 rounded-none border-b border-white/40 px-3 min-[880px]:h-[4.5rem] min-[880px]:rounded-[18px] min-[880px]:border-0 min-[880px]:px-5">
+          <Link href={isAdmin ? "/monitor" : "/inbox"} className="min-w-0 shrink min-[880px]:hidden">
+            <Logo className="h-auto w-24 min-[400px]:w-32" />
           </Link>
           <p className="hidden min-w-0 items-center truncate text-[14px] text-muted min-[880px]:flex">
             {me ? (
@@ -119,7 +121,7 @@ function Chrome({ children }: { children: React.ReactNode }) {
               <Spinner className="size-4 text-muted" label="Loading your desk" />
             )}
           </p>
-          <div className="ml-auto flex shrink-0 items-center gap-2">
+          <div className="ml-auto flex shrink-0 items-center gap-1 min-[400px]:gap-2">
             <span className="min-[880px]:hidden">
               <ThemeToggle />
             </span>
@@ -131,7 +133,7 @@ function Chrome({ children }: { children: React.ReactNode }) {
             >
               {me ? initials(me.name) : <Spinner className="size-4 text-action" label="Loading profile" />}
             </button>
-            <button type="button" className="h-10 rounded-full bg-action px-4 text-[14px] font-semibold text-white" onClick={() => setComposer(true)}>
+            <button type="button" className="h-11 rounded-full bg-action px-3 min-[400px]:px-4 text-[14px] font-semibold text-white" onClick={() => setComposer(true)}>
               New ticket
             </button>
           </div>
@@ -142,7 +144,7 @@ function Chrome({ children }: { children: React.ReactNode }) {
         </div>
       </div>
       <nav className="glass fixed inset-x-3 bottom-3 z-30 rounded-[22px] p-1 pb-[max(0.25rem,env(safe-area-inset-bottom))] min-[880px]:hidden">
-        <div className={`grid h-12 ${isAdmin ? "grid-cols-5" : isLead ? "grid-cols-4" : "grid-cols-3"}`}>
+        <div className={`grid h-14 ${isAdmin ? "grid-cols-5" : isLead ? "grid-cols-4" : "grid-cols-3"}`}>
           <Tab href="/inbox" label="Inbox" count={badges.inbox} />
           <Tab href="/queue" label="Queue" count={badges.queue} />
           <Tab href="/alerts" label="Alerts" count={badges.alerts} alert />
@@ -153,7 +155,7 @@ function Chrome({ children }: { children: React.ReactNode }) {
       </nav>
       {profile && me ? (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-[rgba(8,22,52,0.28)] min-[760px]:items-center" onClick={() => setProfile(false)}>
-          <section onClick={(event) => event.stopPropagation()} className="pane w-full rounded-t-[28px] px-6 py-6 min-[760px]:max-w-sm min-[760px]:rounded-[28px]">
+          <section onClick={(event) => event.stopPropagation()} className="pane max-h-[90dvh] w-full overflow-y-auto rounded-t-[28px] px-6 pt-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] min-[760px]:max-w-sm min-[760px]:rounded-[28px]">
             <div className="flex items-center gap-4">
               <span className="flex size-14 items-center justify-center rounded-full bg-action text-[18px] font-semibold text-white">
                 {initials(me.name)}

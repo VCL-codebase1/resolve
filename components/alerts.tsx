@@ -68,7 +68,7 @@ export function Alerts() {
 
   return (
     <section>
-      <div className="flex items-baseline justify-between border-b border-line px-4 py-5 min-[880px]:px-8">
+      <div className="flex flex-wrap items-baseline justify-between gap-3 border-b border-line px-4 py-5 min-[880px]:px-8">
         <div>
           <h1 className="text-[22px] font-semibold tracking-tight">Alerts</h1>
           <p className="mt-1 text-[15px] text-ink-soft">Live notices for tickets you follow.</p>
