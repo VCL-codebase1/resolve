@@ -14,7 +14,7 @@ npm run db:admin # Set ADMIN_EMAIL, ADMIN_NAME, ADMIN_PASSWORD first
 npm run dev
 ```
 
-The app listens on port 3000 unless `PORT` is set. Open the URL it prints. The public page is `/`. Staff sign in at `/login`.
+The app listens on port 3000 unless `PORT` is set. Open the URL it prints. The public page is `/`. Staff sign in at `/login`, and administrators sign in at `/admin`.
 
 Requires Node.js 22.9 or newer. The scripts also run without a .env file and accept environment variables provided by the host.
 
