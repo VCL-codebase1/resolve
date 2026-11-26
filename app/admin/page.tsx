@@ -1,7 +1,10 @@
-"use client";
-
 import { LoginForm } from "@/components/composer";
 
-export default function AdminLoginPage() {
-  return <LoginForm admin />;
+export default async function AdminLoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const { error } = await searchParams;
+  return <LoginForm admin ssoError={error} />;
 }

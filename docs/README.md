@@ -6,6 +6,8 @@ Brand source: [vethancon.com](https://www.vethancon.com/).
 
 Superadmin setup and database configuration: [deployment.md](deployment.md).
 
+Signing in with a vcglone account: [sso.md](sso.md).
+
 Local PostgreSQL, then the same app on a VPS: [postgres.md](postgres.md).
 
 A walkthrough of the app, the desks, and the flows is in [guide.md](guide.md).
@@ -25,6 +27,7 @@ Usability checks for every staff and admin flow: [testing.md](testing.md).
 9. [email.md](email.md) — receipts, the template, and reply-by-email left off
 10. [postgres.md](postgres.md) — Supabase / local Postgres and `npm run db:migrate`
 11. [deployment.md](deployment.md) — superadmin setup and database configuration
+12. [sso.md](sso.md) — sign in with an existing vcglone account
 
 The email template is [email/ticket.html](email/ticket.html) with the plain-text twin [email/ticket.txt](email/ticket.txt).
 

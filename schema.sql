@@ -8,12 +8,16 @@ CREATE TABLE users (
   id uuid PRIMARY KEY,
   email text NOT NULL UNIQUE,
   name text NOT NULL,
-  password_hash text NOT NULL,
+  password_hash text,
+  sso_subject text,
+  identity_provider text,
   role text NOT NULL CHECK (role IN ('member', 'lead', 'admin')),
   department_slug text NOT NULL REFERENCES departments (slug),
   active boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE UNIQUE INDEX users_sso_subject_key ON users (sso_subject) WHERE sso_subject IS NOT NULL;
 
 CREATE TABLE department_recipients (
   department_slug text NOT NULL REFERENCES departments (slug),
@@ -114,4 +118,10 @@ CREATE TABLE sessions (
   user_id uuid NOT NULL REFERENCES users (id) ON DELETE CASCADE,
   created_at timestamptz NOT NULL DEFAULT now(),
   expires_at timestamptz NOT NULL
+);
+
+CREATE TABLE sso_assertions (
+  jti_hash text PRIMARY KEY,
+  expires_at timestamptz NOT NULL,
+  consumed_at timestamptz NOT NULL DEFAULT now()
 );

@@ -110,9 +110,20 @@ export function Composer() {
   );
 }
 
-export function LoginForm({ admin = false }: { admin?: boolean }) {
+const SSO_ERRORS: Record<string, string> = {
+  "sso-unavailable": "Sign in with vcglone is not configured. Use your password or contact a superadmin.",
+  "sso-expired": "That sign-in took too long. Try again.",
+  "sso-failed": "We could not verify the vcglone sign-in. Try again.",
+  "sso-inactive": "Your vcglone account is not active.",
+  "sso-no-account": "Your vcglone account has no Desk account. Ask a superadmin to add you.",
+  "sso-disabled": "Your Desk account is disabled. Ask a superadmin.",
+  "sso-not-admin": "That account cannot sign in here. Use the staff sign-in.",
+  "sso-use-admin": "Admins use the Superadmin sign-in.",
+};
+
+export function LoginForm({ admin = false, ssoError }: { admin?: boolean; ssoError?: string }) {
   const router = useRouter();
-  const [error, setError] = useState("");
+  const [error, setError] = useState(ssoError ? SSO_ERRORS[ssoError] ?? "Sign in with vcglone failed." : "");
   const [pending, setPending] = useState(false);
   const [notes, setNotes] = useState<ToastNote[]>([]);
 
@@ -189,6 +200,17 @@ export function LoginForm({ admin = false }: { admin?: boolean }) {
         <button type="submit" disabled={pending} className="mt-6 h-11 w-full rounded-[10px] bg-action text-[14px] font-semibold text-white disabled:opacity-40">
           <PendingLabel pending={pending} idle="Sign in" busy="Signing in…" />
         </button>
+        <div className="my-5 flex items-center gap-3 text-[12px] text-ink-soft">
+          <span className="h-px flex-1 bg-line" />
+          or
+          <span className="h-px flex-1 bg-line" />
+        </div>
+        <a
+          href={`/api/v1/auth/sso/start?door=${admin ? "admin" : "staff"}`}
+          className="flex h-11 w-full items-center justify-center rounded-[10px] border border-line text-[14px] font-semibold text-ink"
+        >
+          Sign in with vcglone
+        </a>
       </form>
     </main>
   );

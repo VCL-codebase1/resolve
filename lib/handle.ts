@@ -1,4 +1,4 @@
-import { createHmac, randomUUID } from "node:crypto";
+import { createHmac, randomBytes, randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -14,6 +14,16 @@ import {
   rateLimit,
   type User,
 } from "./auth";
+import {
+  consumeAssertion,
+  signState,
+  ssoConfig,
+  ssoReady,
+  userFromAssertion,
+  verifyAssertion,
+  verifyState,
+  type SsoDoor,
+} from "./sso";
 import { q, tx } from "./db";
 import { STATUS_LABEL, isPriority, isRole, isStatus, type DepartmentSlug, type Priority, type Status } from "./labels";
 import { readStoredFile, storeFile } from "./files";
@@ -633,10 +643,83 @@ function asList(value: unknown) {
   return [];
 }
 
+const SSO_STATE_COOKIE = "desk_sso_state";
+const SSO_STATE_PATH = "/api/v1/auth/sso";
+const SSO_SESSION_SECONDS = 60 * 60 * 24 * 30;
+
+function ssoStateCookie(value: string, maxAge: number) {
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
+  return `${SSO_STATE_COOKIE}=${value}; HttpOnly; SameSite=Lax; Path=${SSO_STATE_PATH}; Max-Age=${maxAge}${secure}`;
+}
+
+function ssoLoginRedirect(door: SsoDoor, error?: string, clearState = false) {
+  const path = door === "admin" ? "/admin" : "/login";
+  const location = error ? `${path}?error=${encodeURIComponent(error)}` : path;
+  const headers: Record<string, string> = { Location: location };
+  if (clearState) headers["Set-Cookie"] = ssoStateCookie("", 0);
+  return new Response(null, { status: 303, headers });
+}
+
+function ssoStart(request: Request) {
+  const url = new URL(request.url);
+  const door: SsoDoor = url.searchParams.get("door") === "admin" ? "admin" : "staff";
+  const config = ssoConfig();
+  if (!ssoReady()) return ssoLoginRedirect(door, "sso-unavailable", true);
+  const redirectUri = process.env.SSO_REDIRECT_URI || `${process.env.APP_ORIGIN || url.origin}/api/v1/auth/sso/callback`;
+  const state = randomBytes(24).toString("base64url");
+  const target = new URL("/api/sso/authorize", config.vcgloneUrl);
+  target.searchParams.set("client_id", config.clientId);
+  target.searchParams.set("redirect_uri", redirectUri);
+  target.searchParams.set("state", state);
+  return new Response(null, {
+    status: 303,
+    headers: {
+      Location: target.toString(),
+      "Set-Cookie": ssoStateCookie(`${state}.${door}.${signState(state, door)}`, 600),
+    },
+  });
+}
+
+async function ssoCallback(request: Request) {
+  const url = new URL(request.url);
+  const state = url.searchParams.get("state") || "";
+  if (!ssoReady()) return ssoLoginRedirect("staff", "sso-unavailable", true);
+  const stored = verifyState(cookieValue(request.headers.get("cookie"), SSO_STATE_COOKIE));
+  const door: SsoDoor = stored?.door ?? "staff";
+  if (!stored || !sameSecret(state, stored.state)) return ssoLoginRedirect(door, "sso-expired", true);
+
+  try {
+    const claims = verifyAssertion(url.searchParams.get("assertion") || "");
+    if (claims.employmentStatus !== "ACTIVE") return ssoLoginRedirect(door, "sso-inactive", true);
+    await consumeAssertion(claims.jti, claims.exp);
+    const user = await userFromAssertion(claims);
+    if (!user) return ssoLoginRedirect(door, "sso-no-account", true);
+    if (!user.active) return ssoLoginRedirect(door, "sso-disabled", true);
+    if (door === "admin" && user.role !== "admin") return ssoLoginRedirect(door, "sso-not-admin", true);
+    if (door === "staff" && user.role === "admin") return ssoLoginRedirect(door, "sso-use-admin", true);
+
+    const token = await createSession(user.id);
+    return new Response(null, {
+      status: 303,
+      headers: {
+        Location: user.role === "admin" ? "/monitor" : "/inbox",
+        "Set-Cookie": `${sessionCookie(token, SSO_SESSION_SECONDS)}, ${ssoStateCookie("", 0)}`,
+      },
+    });
+  } catch (error) {
+    console.error("SSO callback failed", error);
+    return ssoLoginRedirect(door, "sso-failed", true);
+  }
+}
+
 export async function handle(method: string, path: string[], request: Request): Promise<Response> {
   try {
     const url = new URL(request.url);
     const key = `${method} ${path.join("/")}`;
+
+    if (key === "GET auth/sso/start") return ssoStart(request);
+
+    if (key === "GET auth/sso/callback") return await ssoCallback(request);
 
     if (key === "POST auth/login") {
       const ip = request.headers.get("x-forwarded-for")?.split(",")[0].trim() || "local";

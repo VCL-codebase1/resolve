@@ -39,20 +39,27 @@ function statements(sql: string) {
     .filter((part) => part.length > 0 && !part.startsWith("--"));
 }
 
+const migrations = [
+  { version: 1, file: "schema.sql" },
+  { version: 2, file: "migrations/002_sso.sql" },
+];
+
 async function migrate(db: Db) {
   await db.tx(async () => {
     // Serialize schema setup across app instances connected to PostgreSQL.
     await db.query("SELECT pg_advisory_xact_lock(7219441)");
     await db.query("CREATE TABLE IF NOT EXISTS schema_migrations (version int PRIMARY KEY)");
-    const applied = await db.query("SELECT version FROM schema_migrations WHERE version = 1");
-    if (applied.length) return;
-    const schema = readFileSync(join(root, "schema.sql"), "utf8");
-    for (const statement of statements(schema)) {
-      // Complete databases created before version tracking, including interrupted setup.
-      const resumable = statement.replace(/^CREATE (TABLE|INDEX|SEQUENCE) /, "CREATE $1 IF NOT EXISTS ");
-      await db.query(resumable);
+    for (const migration of migrations) {
+      const applied = await db.query("SELECT 1 FROM schema_migrations WHERE version = $1", [migration.version]);
+      if (applied.length) continue;
+      const sql = readFileSync(join(root, migration.file), "utf8");
+      for (const statement of statements(sql)) {
+        // Complete databases created before version tracking, including interrupted setup.
+        const resumable = statement.replace(/^CREATE (TABLE|INDEX|SEQUENCE) /, "CREATE $1 IF NOT EXISTS ");
+        await db.query(resumable);
+      }
+      await db.query("INSERT INTO schema_migrations (version) VALUES ($1)", [migration.version]);
     }
-    await db.query("INSERT INTO schema_migrations (version) VALUES (1)");
   });
 }
 
