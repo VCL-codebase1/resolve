@@ -183,13 +183,13 @@ curl -s -b /tmp/admin.txt -H 'content-type: application/json' -d '{}' \
 
 ## Last verified run
 
-Date: 24 Nov 2026.
+Date: 24 Nov 2026 for ticket flows; 26 Nov 2026 for the task port.
 
 - Build: `npm run build` succeeded (Resolve landing, `/admin`, desk routes).
 - Runtime: production `server.ts` on `http://localhost:3000` with embedded PGlite (Supabase URI was not reachable: `db.*.supabase.co` → `ENOTFOUND`; pooler → tenant/user not found until the Session URI from the dashboard is pasted).
 - API flows passed: landing, admin/login pages, staff login, raise, raise receipt `sent` (SMTP unset), local PNG attach and download, admin login, monitor, directory, assign (`PATCH`), reply + receipt, waiting → resolved → closed, create department, create user, reset password + make head, login after reset, outreach, alerts, badges, inbox, queue, logout, inbound `501`.
 - UI door checks for admin vs staff are enforced in the login forms, not in `/api/v1/auth/login`.
-- The task flows and task API smoke commands above were added with the vcglone task port and have not been part of a verified run.
+- Task port verified on 26 Nov 2026: `npm run db:migrate`, `npx tsc --noEmit`, `npm run build`, and production `npm start` all passed; 33/33 task smoke checks passed, covering self-assigned completion, required step gating, review/approve/cancel, reminder delivery, report JSON/CSV/PDF/handoffs exports, task alert deep links and task UI routes. `docs/openapi.yaml` parses and all local `$ref`s resolve.
 
 ## Known traps
 
