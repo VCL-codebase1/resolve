@@ -26,7 +26,25 @@ import {
   type SsoDoor,
 } from "./sso";
 import { q, tx } from "./db";
-import { STATUS_LABEL, isPriority, isRole, isStatus, type DepartmentSlug, type Priority, type Status } from "./labels";
+import {
+  STATUS_LABEL,
+  TASK_PRIORITY_LABEL,
+  TASK_STEP_STATUS_LABEL,
+  TASK_STATUS_LABEL,
+  isPriority,
+  isRole,
+  isStatus,
+  isTaskPriority,
+  isTaskStatus,
+  taskActive,
+  taskClosed,
+  type DepartmentSlug,
+  type Priority,
+  type Status,
+  type TaskPriority,
+  type TaskStatus,
+  type TaskStepStatus,
+} from "./labels";
 import { readStoredFile, storeFile } from "./files";
 import { deliver, type MailInput } from "./mail";
 import { publish } from "./realtime";
@@ -251,6 +269,386 @@ async function eventsFor(ticketId: string, includeEmail: boolean) {
   }));
 }
 
+const TASK_ACTIVE_STATUSES: TaskStatus[] = ["assigned", "in_progress", "blocked", "in_review", "changes_requested"];
+
+const taskSelect = `
+  SELECT t.id, t.assigned_by_id, t.name, t.description, t.expected_outcome, t.priority, t.status,
+         t.start_at, t.due_at, t.reminder_offsets, t.blocked_reason, t.submission_note,
+         t.review_comment, t.started_at, t.blocked_at, t.submitted_at, t.approved_at,
+         t.completed_at, t.cancelled_at, t.created_at, t.updated_at,
+         a.id AS assignee_id, a.name AS assignee_name, a.role AS assignee_role,
+         a.department_slug AS assignee_department, a.active AS assignee_active, a.email AS assignee_email,
+         b.id AS assigner_id, b.name AS assigner_name, b.role AS assigner_role,
+         b.department_slug AS assigner_department, b.active AS assigner_active, b.email AS assigner_email
+  FROM tasks t
+  JOIN users a ON a.id = t.assignee_id
+  JOIN users b ON b.id = t.assigned_by_id
+`;
+
+function mapTask(row: Record<string, unknown>, includeEmail: boolean) {
+  const status = row.status as TaskStatus;
+  return {
+    id: String(row.id),
+    name: String(row.name),
+    description: String(row.description),
+    expectedOutcome: row.expected_outcome === null || row.expected_outcome === undefined ? null : String(row.expected_outcome),
+    assignee: personFromAliases(row, "assignee", includeEmail)!,
+    assignedBy: personFromAliases(row, "assigner", includeEmail)!,
+    priority: row.priority as TaskPriority,
+    status,
+    startAt: row.start_at ? iso(row.start_at) : null,
+    dueAt: iso(row.due_at),
+    reminderOffsets: Array.isArray(row.reminder_offsets) ? row.reminder_offsets.map((value) => Number(value)) : [],
+    blockedReason: row.blocked_reason === null || row.blocked_reason === undefined ? null : String(row.blocked_reason),
+    submissionNote: row.submission_note === null || row.submission_note === undefined ? null : String(row.submission_note),
+    reviewComment: row.review_comment === null || row.review_comment === undefined ? null : String(row.review_comment),
+    startedAt: row.started_at ? iso(row.started_at) : null,
+    blockedAt: row.blocked_at ? iso(row.blocked_at) : null,
+    submittedAt: row.submitted_at ? iso(row.submitted_at) : null,
+    approvedAt: row.approved_at ? iso(row.approved_at) : null,
+    completedAt: row.completed_at ? iso(row.completed_at) : null,
+    cancelledAt: row.cancelled_at ? iso(row.cancelled_at) : null,
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
+    overdue: taskActive(status) && new Date(iso(row.due_at)).getTime() < Date.now(),
+  };
+}
+
+async function taskRow(id: string) {
+  if (!/^TSK-[1-9][0-9]*$/.test(id)) return null;
+  const rows = await q(`${taskSelect} WHERE t.id = $1`, [id]);
+  return rows[0] ?? null;
+}
+
+async function requireTask(user: User, id: string) {
+  const row = await taskRow(id);
+  if (!row || !(await canAccessTask(user, row))) throw new HttpError(404, "not_found", "That task does not exist.");
+  return row;
+}
+
+async function canAccessTask(user: User, row: Record<string, unknown>) {
+  if (user.role === "admin") return true;
+  if (user.id === row.assignee_id || user.id === row.assigned_by_id) return true;
+  const steps = await q(
+    `SELECT s.assignee_id, s.target_lead_id, u.department_slug AS assignee_department
+     FROM task_steps s JOIN users u ON u.id = s.assignee_id WHERE s.task_id = $1`,
+    [row.id],
+  );
+  if (steps.some((step) => step.assignee_id === user.id || step.target_lead_id === user.id)) return true;
+  if (user.role === "lead") {
+    if (steps.some((step) => step.assignee_department === user.departmentSlug)) return true;
+    const assignee = await userById(String(row.assignee_id));
+    if (assignee?.departmentSlug === user.departmentSlug) return true;
+  }
+  return false;
+}
+
+async function canReviewTask(user: User, row: Record<string, unknown>) {
+  if (user.role === "admin") return true;
+  if (user.role !== "lead") return false;
+  if (row.assigned_by_id === user.id) return true;
+  const assignee = await userById(String(row.assignee_id));
+  return assignee?.departmentSlug === user.departmentSlug;
+}
+
+async function canAssignTaskTo(actor: User, targetId: string) {
+  const target = await userById(targetId);
+  if (!target || !target.active) {
+    throw new HttpError(422, "validation", "Choose an active person.", { assigneeId: "Choose an active person." });
+  }
+  if (target.role === "admin") {
+    throw new HttpError(422, "validation", "A superadmin cannot be assigned work.", { assigneeId: "A superadmin cannot be assigned work." });
+  }
+  if (actor.role === "member" && target.id !== actor.id) {
+    throw new HttpError(403, "forbidden", "You can only assign a task to yourself.");
+  }
+  if (actor.role === "lead" && target.departmentSlug !== actor.departmentSlug) {
+    throw new HttpError(403, "forbidden", "Choose someone in your department.");
+  }
+  return target;
+}
+
+async function canAssignStepTo(actor: User, targetId: string) {
+  const target = await userById(targetId);
+  if (!target || !target.active) throw new HttpError(422, "validation", "Choose an active step assignee.", { assigneeId: "Choose an active step assignee." });
+  if (target.role === "admin") throw new HttpError(422, "validation", "A superadmin cannot be assigned a step.", { assigneeId: "A superadmin cannot be assigned a step." });
+  if (actor.role === "member" && target.id !== actor.id) throw new HttpError(403, "forbidden", "You can only assign a step to yourself.");
+  return target;
+}
+
+async function taskAudience(taskId: string, actorId: string) {
+  const rows = await q<{ id: string }>(
+    `SELECT DISTINCT u.id FROM users u WHERE u.active = true AND u.id <> $2 AND (
+       u.id = (SELECT assignee_id FROM tasks WHERE id = $1)
+       OR u.id = (SELECT assigned_by_id FROM tasks WHERE id = $1)
+       OR u.id IN (SELECT assignee_id FROM task_steps WHERE task_id = $1)
+       OR u.id IN (SELECT target_lead_id FROM task_steps WHERE task_id = $1)
+     )`,
+    [taskId, actorId],
+  );
+  return rows.map((row) => String(row.id));
+}
+
+async function taskNotify(taskId: string, actor: User, action: string, sentence: string, recipients?: string[]) {
+  const audience = recipients ?? (await taskAudience(taskId, actor.id));
+  await notify({
+    recipients: audience,
+    readers: audience,
+    actor,
+    type: `task.${action}`,
+    sound: "status",
+    sentence,
+    ticketId: null,
+    taskId,
+    ticketEvent: { type: `task.${action}`, taskId, action },
+  });
+}
+
+async function recordTaskActivity(
+  taskId: string,
+  actorId: string | null,
+  action: string,
+  message: string,
+  metadata?: Record<string, unknown>,
+) {
+  await q(
+    `INSERT INTO task_activities (id, task_id, actor_id, action, message, metadata) VALUES ($1,$2,$3,$4,$5,$6::jsonb)`,
+    [randomUUID(), taskId, actorId, action, message, metadata ? JSON.stringify(metadata) : null],
+  );
+}
+
+const taskStepSelect = `
+  SELECT s.*,
+         a.id AS assignee_id, a.name AS assignee_name, a.role AS assignee_role,
+         a.department_slug AS assignee_department, a.active AS assignee_active, a.email AS assignee_email,
+         b.id AS assigner_id, b.name AS assigner_name, b.role AS assigner_role,
+         b.department_slug AS assigner_department, b.active AS assigner_active, b.email AS assigner_email,
+         l.id AS lead_id, l.name AS lead_name, l.role AS lead_role,
+         l.department_slug AS lead_department, l.active AS lead_active, l.email AS lead_email
+  FROM task_steps s
+  JOIN users a ON a.id = s.assignee_id
+  JOIN users b ON b.id = s.assigned_by_id
+  LEFT JOIN users l ON l.id = s.target_lead_id
+`;
+
+function mapTaskStep(row: Record<string, unknown>, includeEmail: boolean) {
+  return {
+    id: String(row.id),
+    taskId: String(row.task_id),
+    title: String(row.title),
+    description: row.description === null || row.description === undefined ? null : String(row.description),
+    position: Number(row.position),
+    required: Boolean(row.required),
+    assignee: personFromAliases(row, "assignee", includeEmail)!,
+    assignedBy: personFromAliases(row, "assigner", includeEmail)!,
+    sourceDepartment: row.source_department ? String(row.source_department) : null,
+    targetDepartment: row.target_department ? String(row.target_department) : null,
+    targetLead: personFromAliases(row, "lead", includeEmail),
+    interdepartmental: Boolean(row.interdepartmental),
+    status: row.status as TaskStepStatus,
+    dueAt: iso(row.due_at),
+    startedAt: row.started_at ? iso(row.started_at) : null,
+    blockedAt: row.blocked_at ? iso(row.blocked_at) : null,
+    blockedReason: row.blocked_reason ? String(row.blocked_reason) : null,
+    completedAt: row.completed_at ? iso(row.completed_at) : null,
+    completionNote: row.completion_note ? String(row.completion_note) : null,
+    createdAt: iso(row.created_at),
+    updatedAt: iso(row.updated_at),
+  };
+}
+
+async function taskStepRow(id: string) {
+  const rows = await q(`${taskStepSelect} WHERE s.id = $1`, [id]);
+  return rows[0] ?? null;
+}
+
+async function canAccessStep(user: User, row: Record<string, unknown>) {
+  if (user.role === "admin") return true;
+  if (user.id === row.assignee_id || user.id === row.assigned_by_id || user.id === row.target_lead_id) return true;
+  const task = await taskRow(String(row.task_id));
+  return task ? canAccessTask(user, task) : false;
+}
+
+async function requireStep(user: User, id: string) {
+  const row = await taskStepRow(id);
+  if (!row || !(await canAccessStep(user, row))) throw new HttpError(404, "not_found", "That task step does not exist.");
+  return row;
+}
+
+async function taskStepsFor(taskId: string, includeEmail: boolean) {
+  const rows = await q(`${taskStepSelect} WHERE s.task_id = $1 ORDER BY s.position ASC, s.created_at ASC`, [taskId]);
+  return rows.map((row) => mapTaskStep(row, includeEmail));
+}
+
+async function taskResourcesFor(taskId: string, includeEmail: boolean) {
+  const rows = await q(
+    `SELECT r.*, u.id AS uploader_id, u.name AS uploader_name, u.role AS uploader_role,
+            u.department_slug AS uploader_department, u.active AS uploader_active, u.email AS uploader_email
+     FROM task_resources r JOIN users u ON u.id = r.uploader_id
+     WHERE r.task_id = $1 ORDER BY r.created_at ASC, r.id ASC`,
+    [taskId],
+  );
+  return rows.map((row) => ({
+    id: String(row.id),
+    taskId: String(row.task_id),
+    uploader: personFromAliases(row, "uploader", includeEmail)!,
+    type: row.type as "link" | "file",
+    title: String(row.title),
+    url: row.url ? String(row.url) : null,
+    fileName: row.file_name ? String(row.file_name) : null,
+    mediaType: row.media_type ? String(row.media_type) : null,
+    size: row.size === null || row.size === undefined ? null : Number(row.size),
+    createdAt: iso(row.created_at),
+  }));
+}
+
+async function taskCommentsFor(taskId: string, includeEmail: boolean) {
+  const rows = await q(
+    `SELECT c.*, u.id AS author_id, u.name AS author_name, u.role AS author_role,
+            u.department_slug AS author_department, u.active AS author_active, u.email AS author_email
+     FROM task_comments c JOIN users u ON u.id = c.author_id
+     WHERE c.task_id = $1 ORDER BY c.created_at ASC, c.id ASC`,
+    [taskId],
+  );
+  return rows.map((row) => ({
+    id: String(row.id),
+    taskId: String(row.task_id),
+    author: personFromAliases(row, "author", includeEmail)!,
+    body: String(row.body),
+    createdAt: iso(row.created_at),
+  }));
+}
+
+async function taskActivitiesFor(taskId: string, includeEmail: boolean) {
+  const rows = await q(
+    `SELECT v.*, u.id AS actor_id, u.name AS actor_name, u.role AS actor_role,
+            u.department_slug AS actor_department, u.active AS actor_active, u.email AS actor_email
+     FROM task_activities v LEFT JOIN users u ON u.id = v.actor_id
+     WHERE v.task_id = $1 ORDER BY v.created_at ASC, v.id ASC`,
+    [taskId],
+  );
+  return rows.map((row) => ({
+    id: String(row.id),
+    taskId: String(row.task_id),
+    actor: personFromAliases(row, "actor", includeEmail),
+    action: String(row.action),
+    message: String(row.message),
+    metadata: row.metadata && typeof row.metadata === "object" ? (row.metadata as Record<string, unknown>) : null,
+    createdAt: iso(row.created_at),
+  }));
+}
+
+async function taskDetail(row: Record<string, unknown>, includeEmail: boolean) {
+  const id = String(row.id);
+  return {
+    ...mapTask(row, includeEmail),
+    steps: await taskStepsFor(id, includeEmail),
+    resources: await taskResourcesFor(id, includeEmail),
+    comments: await taskCommentsFor(id, includeEmail),
+    activities: await taskActivitiesFor(id, includeEmail),
+  };
+}
+
+async function listTasks(user: User, url: URL) {
+  const includeEmail = user.role === "admin";
+  const scope = url.searchParams.get("scope") || "mine";
+  if (scope === "organization" && user.role !== "admin") throw new HttpError(403, "forbidden", "Only an admin can see every task.");
+  if (scope === "team" && user.role === "member") throw new HttpError(403, "forbidden", "Only a head or admin can see a team’s tasks.");
+
+  const where: string[] = [];
+  const params: unknown[] = [];
+  const add = (clause: string, ...values: unknown[]) => {
+    let next = clause;
+    for (const value of values) {
+      params.push(value);
+      next = next.replace("?", `$${params.length}`);
+    }
+    where.push(next);
+  };
+
+  if (scope === "mine") {
+    add(
+      `(t.assignee_id = ? OR t.assigned_by_id = ?
+        OR EXISTS (SELECT 1 FROM task_steps s WHERE s.task_id = t.id AND s.assignee_id = ?))`,
+      user.id,
+      user.id,
+      user.id,
+    );
+  } else if (scope === "team") {
+    add(
+      `((SELECT department_slug FROM users WHERE id = t.assignee_id) = ?
+        OR t.assigned_by_id = ?
+        OR EXISTS (SELECT 1 FROM task_steps s WHERE s.task_id = t.id AND s.target_lead_id = ?))`,
+      user.departmentSlug,
+      user.id,
+      user.id,
+    );
+  }
+
+  const status = url.searchParams.get("status");
+  if (status === "overdue") {
+    add(`t.status IN (${TASK_ACTIVE_STATUSES.map(() => "?").join(",")}) AND t.due_at < now()`, ...TASK_ACTIVE_STATUSES);
+  } else if (status) {
+    if (!isTaskStatus(status)) throw new HttpError(422, "validation", "That status is not valid.", { status: "That status is not valid." });
+    add(`t.status = ?`, status);
+  }
+
+  const priority = url.searchParams.get("priority");
+  if (priority) {
+    if (!isTaskPriority(priority)) throw new HttpError(422, "validation", "That priority is not valid.", { priority: "That priority is not valid." });
+    add(`t.priority = ?`, priority);
+  }
+
+  const department = url.searchParams.get("department");
+  if (department) {
+    if (!(await departmentName(department))) throw new HttpError(422, "validation", "That department is not valid.");
+    if (user.role !== "admin" && department !== user.departmentSlug) throw new HttpError(403, "forbidden", "You cannot filter to that department.");
+    add(
+      `((SELECT department_slug FROM users WHERE id = t.assignee_id) = ?
+        OR EXISTS (SELECT 1 FROM task_steps s WHERE s.task_id = t.id AND s.target_department = ?))`,
+      department,
+      department,
+    );
+  }
+
+  const query = url.searchParams.get("q")?.trim();
+  if (query) {
+    const needle = `%${query}%`;
+    add(
+      `(t.name ILIKE ? OR t.description ILIKE ? OR t.id ILIKE ?
+        OR EXISTS (SELECT 1 FROM users u JOIN task_steps s ON s.assignee_id = u.id
+                   WHERE s.task_id = t.id AND (u.name ILIKE ? OR s.title ILIKE ?))
+        OR EXISTS (SELECT 1 FROM users u WHERE u.id = t.assignee_id AND u.name ILIKE ?))`,
+      needle,
+      needle,
+      needle,
+      needle,
+      needle,
+      needle,
+    );
+  }
+
+  const cursor = url.searchParams.get("cursor");
+  if (cursor) {
+    const decoded = decodeCursor(cursor);
+    add(`(t.updated_at, t.id) < (?::timestamptz, ?)`, decoded.time, decoded.id);
+  }
+
+  const limit = pageLimit(url);
+  params.push(limit + 1);
+  const rows = await q(
+    `${taskSelect} ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY t.updated_at DESC, t.id DESC LIMIT $${params.length}`,
+    params,
+  );
+  const extra = rows.length > limit;
+  const items = rows.slice(0, limit).map((row) => mapTask(row, includeEmail));
+  const last = rows[Math.min(rows.length, limit) - 1];
+  return {
+    items,
+    nextCursor: extra && last ? encodeCursor(iso(last.updated_at), String(last.id)) : null,
+  };
+}
+
 async function messagesFor(ticketId: string, includeEmail: boolean) {
   const rows = await q(
     `SELECT m.id, m.ticket_id, m.body, m.created_at,
@@ -269,7 +667,7 @@ async function messagesFor(ticketId: string, includeEmail: boolean) {
   return rows.map((row) => ({
     id: String(row.id),
     ticketId: String(row.ticket_id),
-    author: personFromAliases(row, "author", includeEmail),
+    author: personFromAliases(row, "author", includeEmail)!,
     body: String(row.body),
     createdAt: iso(row.created_at),
     attachments: files
@@ -349,10 +747,17 @@ async function badgesFor(user: User) {
     `SELECT count(*)::int AS n FROM notifications WHERE user_id = $1 AND read = false`,
     [user.id],
   );
+  const tasks = await q<{ n: number }>(
+    `SELECT count(DISTINCT t.id)::int AS n FROM tasks t
+     WHERE t.status IN ('assigned','in_progress','blocked','in_review','changes_requested')
+       AND (t.assignee_id = $1 OR (t.status = 'in_review' AND t.assigned_by_id = $1))`,
+    [user.id],
+  );
   const body: Record<string, unknown> = {
     inbox: Number(inbox[0]?.n ?? 0),
     queue: Number(queue[0]?.n ?? 0),
     alerts: Number(alerts[0]?.n ?? 0),
+    tasks: Number(tasks[0]?.n ?? 0),
   };
   if (user.role === "admin") body.monitor = await monitorCounts();
   return body;
@@ -418,6 +823,7 @@ async function notify(options: {
   sound: "raise" | "reply" | "status";
   sentence: string;
   ticketId: string | null;
+  taskId?: string | null;
   departmentSlug?: string | null;
   ticketEvent: Record<string, unknown> | null;
 }) {
@@ -426,15 +832,16 @@ async function notify(options: {
   for (const userId of options.recipients) {
     const id = randomUUID();
     await q(
-      `INSERT INTO notifications (id, user_id, type, ticket_id, department_slug, sentence, sound, actor_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [id, userId, options.type, options.ticketId, options.departmentSlug ?? null, options.sentence, options.sound, options.actor.id],
+      `INSERT INTO notifications (id, user_id, type, ticket_id, task_id, department_slug, sentence, sound, actor_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [id, userId, options.type, options.ticketId, options.taskId ?? null, options.departmentSlug ?? null, options.sentence, options.sound, options.actor.id],
     );
     publish([userId], {
       type: "notification.created",
       notificationId: id,
       notificationType: options.type,
       ticketId: options.ticketId,
+      taskId: options.taskId ?? undefined,
       departmentSlug: options.departmentSlug ?? undefined,
       sound: options.sound,
       sentence: options.sentence,
@@ -760,6 +1167,597 @@ async function ssoCallback(request: Request) {
   } catch (error) {
     console.error("SSO callback failed", error);
     return ssoLoginRedirect(door, "sso-failed", true);
+  }
+}
+
+function parseTaskDate(value: unknown, field: string, required = true) {
+  if (value === undefined || value === null || value === "") {
+    if (required) throw new HttpError(422, "validation", `${field} is required.`, { [field.toLowerCase()]: `${field} is required.` });
+    return null;
+  }
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) {
+    throw new HttpError(422, "validation", `${field} is not a valid date.`, { [field.toLowerCase()]: `${field} is not a valid date.` });
+  }
+  return date;
+}
+
+function parseReminderOffsets(value: unknown) {
+  if (value === undefined || value === null) return [1440, 120, 0];
+  if (!Array.isArray(value)) throw new HttpError(422, "validation", "Choose valid reminders.", { reminderOffsets: "Choose valid reminders." });
+  const numbers = value.map((item) => Number(item));
+  if (numbers.some((item) => !Number.isFinite(item) || item < 0 || item > 43200)) {
+    throw new HttpError(422, "validation", "Choose valid reminders.", { reminderOffsets: "Choose valid reminders." });
+  }
+  return [...new Set(numbers)].slice(0, 6);
+}
+
+function parseTaskLinks(value: unknown) {
+  if (value === undefined || value === null || value === "") return [] as string[];
+  let raw = value;
+  if (typeof raw === "string") {
+    try {
+      raw = JSON.parse(raw);
+    } catch {
+      throw new HttpError(422, "validation", "Links must be a list.", { resourceLinks: "Links must be a list." });
+    }
+  }
+  if (!Array.isArray(raw)) throw new HttpError(422, "validation", "Links must be a list.", { resourceLinks: "Links must be a list." });
+  const links: string[] = [];
+  for (const item of raw) {
+    const text = String(item || "").trim();
+    if (!text) continue;
+    let url: URL;
+    try {
+      url = new URL(text);
+    } catch {
+      throw new HttpError(422, "validation", "Links must be complete addresses.", { resourceLinks: "Links must be complete addresses." });
+    }
+    if (url.protocol !== "http:" && url.protocol !== "https:") throw new HttpError(422, "validation", "Links must use http or https.", { resourceLinks: "Links must use http or https." });
+    links.push(text);
+  }
+  return links.slice(0, 30);
+}
+
+async function addTaskLinkResources(taskId: string, uploaderId: string, links: string[]) {
+  for (const url of links) {
+    let title = url;
+    try {
+      title = new URL(url).hostname.replace(/^www\./, "");
+    } catch {
+      title = "Link";
+    }
+    await q(
+      `INSERT INTO task_resources (id, task_id, uploader_id, type, title, url) VALUES ($1,$2,$3,'link',$4,$5)`,
+      [randomUUID(), taskId, uploaderId, title.slice(0, 180), url],
+    );
+  }
+}
+
+async function deliverTaskReminder(taskId: string, userId: string, kind: string, scheduledFor: Date, sentence: string) {
+  return tx(async () => {
+    const id = randomUUID();
+    const inserted = await q(
+      `INSERT INTO task_reminder_deliveries (id, task_id, user_id, kind, scheduled_for)
+       VALUES ($1,$2,$3,$4,$5) ON CONFLICT (task_id, user_id, kind, scheduled_for) DO NOTHING RETURNING id`,
+      [id, taskId, userId, kind, scheduledFor],
+    );
+    if (!inserted.length) return false;
+    const actor = await userById(userId);
+    if (actor) {
+      await notify({
+        recipients: [userId],
+        readers: [userId],
+        actor,
+        type: "task.reminder",
+        sound: "status",
+        sentence,
+        ticketId: null,
+        taskId,
+        ticketEvent: { type: "task.reminder", taskId, kind },
+      });
+    }
+    return true;
+  });
+}
+
+async function ensureTaskRemindersForUser(user: User) {
+  const rows = await q(
+    `SELECT t.id, t.name, t.start_at, t.due_at, t.reminder_offsets, t.assignee_id, t.assigned_by_id, t.status
+     FROM tasks t WHERE t.status IN ('assigned','in_progress','blocked','in_review','changes_requested')
+       AND (t.assignee_id = $1 OR t.assigned_by_id = $1)`,
+    [user.id],
+  );
+  let delivered = 0;
+  const now = Date.now();
+  const lagosDate = new Date(now + 3600000).toISOString().slice(0, 10);
+  for (const row of rows) {
+    const isAssignee = row.assignee_id === user.id;
+    if (isAssignee && row.start_at) {
+      const start = new Date(iso(row.start_at));
+      if (now >= start.getTime()) {
+        if (await deliverTaskReminder(String(row.id), user.id, "START", start, `${row.name} is ready to start.`)) delivered += 1;
+      }
+    }
+    if (isAssignee) {
+      const due = new Date(iso(row.due_at));
+      const offsets = (Array.isArray(row.reminder_offsets) ? row.reminder_offsets.map((value) => Number(value)) : [])
+        .filter((offset) => Number.isFinite(offset) && offset >= 0)
+        .sort((a, b) => a - b);
+      const eligible = offsets.find((offset) => now >= due.getTime() - offset * 60000);
+      if (eligible !== undefined) {
+        const scheduled = new Date(due.getTime() - eligible * 60000);
+        const kind = eligible === 0 ? "DUE" : `DUE_${eligible}`;
+        const sentence = eligible === 0 ? `${row.name} is due now.` : `${row.name} is due in ${eligible} minutes.`;
+        if (await deliverTaskReminder(String(row.id), user.id, kind, scheduled, sentence)) delivered += 1;
+      }
+      if (now > due.getTime()) {
+        if (await deliverTaskReminder(String(row.id), user.id, `OVERDUE_${lagosDate}`, due, `${row.name} is overdue.`)) delivered += 1;
+      }
+    }
+    if ((user.role === "lead" || user.role === "admin") && row.assigned_by_id === user.id && now > new Date(iso(row.due_at)).getTime()) {
+      const due = new Date(iso(row.due_at));
+      if (await deliverTaskReminder(String(row.id), user.id, `MANAGER_OVERDUE_${lagosDate}`, due, `A task you delegated, ${row.name}, is overdue.`)) delivered += 1;
+    }
+  }
+  return delivered;
+}
+
+async function runTaskReminders() {
+  const rows = await q<{ id: string }>(
+    `SELECT DISTINCT u.id FROM users u JOIN tasks t ON t.assignee_id = u.id OR t.assigned_by_id = u.id
+     WHERE u.active = true AND t.status IN ('assigned','in_progress','blocked','in_review','changes_requested')`,
+  );
+  let delivered = 0;
+  for (const row of rows) {
+    const user = await userById(String(row.id));
+    if (user) delivered += await ensureTaskRemindersForUser(user);
+  }
+  return delivered;
+}
+
+function lagosDate(date: Date) {
+  return new Date(date.getTime() + 3600000).toISOString().slice(0, 10);
+}
+
+function shiftDate(value: string, days: number) {
+  const date = new Date(`${value}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+function taskReportRange(period: string, date: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(new Date(`${date}T00:00:00.000Z`).getTime())) {
+    throw new HttpError(422, "validation", "Choose a valid date.", { date: "Choose a valid date." });
+  }
+  let fromDate = date;
+  let toDate = shiftDate(date, 1);
+  if (period === "weekly") {
+    const day = new Date(`${date}T00:00:00.000Z`).getUTCDay();
+    fromDate = shiftDate(date, -((day + 6) % 7));
+    toDate = shiftDate(fromDate, 7);
+  } else if (period === "monthly") {
+    fromDate = `${date.slice(0, 7)}-01`;
+    const month = new Date(`${fromDate}T00:00:00.000Z`);
+    month.setUTCMonth(month.getUTCMonth() + 1);
+    toDate = month.toISOString().slice(0, 10);
+  }
+  const from = new Date(`${fromDate}T00:00:00.000+01:00`);
+  const to = new Date(`${toDate}T00:00:00.000+01:00`);
+  return { from, to, period, date: fromDate };
+}
+
+function appendTaskReportRange(where: string[], params: unknown[], range: ReturnType<typeof taskReportRange>) {
+  const from = params.length + 1;
+  params.push(range.from);
+  const to = params.length + 1;
+  params.push(range.to);
+  where.push(
+    `t.created_at < $${to} AND ((t.due_at >= $${from} AND t.due_at < $${to})
+      OR (t.created_at >= $${from} AND t.created_at < $${to})
+      OR (t.completed_at >= $${from} AND t.completed_at < $${to})
+      OR t.status IN ('assigned','in_progress','blocked','in_review','changes_requested'))`,
+  );
+}
+
+function appendTaskStepReportRange(where: string[], params: unknown[], range: ReturnType<typeof taskReportRange>) {
+  const from = params.length + 1;
+  params.push(range.from);
+  const to = params.length + 1;
+  params.push(range.to);
+  where.push(
+    `s.created_at < $${to} AND ((s.due_at >= $${from} AND s.due_at < $${to})
+      OR (s.created_at >= $${from} AND s.created_at < $${to})
+      OR (s.completed_at >= $${from} AND s.completed_at < $${to})
+      OR s.status IN ('assigned','in_progress','blocked'))`,
+  );
+}
+
+async function taskReportScope(user: User, scope: string, employeeId: string, departmentId: string) {
+  if (scope !== "mine" && scope !== "team" && scope !== "organization") throw new HttpError(422, "validation", "Choose a report scope.", { scope: "Choose a report scope." });
+  if (scope === "organization" && user.role !== "admin") throw new HttpError(403, "forbidden", "Only an admin can see the whole organization.");
+  if (scope === "team" && user.role === "member") throw new HttpError(403, "forbidden", "Only a head or admin can see a team report.");
+  const where: string[] = [];
+  const params: unknown[] = [];
+  const add = (clause: string, ...values: unknown[]) => {
+    let next = clause;
+    for (const value of values) {
+      params.push(value);
+      next = next.replace("?", `$${params.length}`);
+    }
+    where.push(next);
+  };
+  if (scope === "mine") {
+    add(
+      `(t.assignee_id = ? OR t.assigned_by_id = ?
+        OR EXISTS (SELECT 1 FROM task_steps s WHERE s.task_id = t.id AND s.assignee_id = ?))`,
+      user.id,
+      user.id,
+      user.id,
+    );
+  } else if (scope === "team") {
+    add(
+      `((SELECT department_slug FROM users WHERE id = t.assignee_id) = ?
+        OR t.assigned_by_id = ?
+        OR EXISTS (SELECT 1 FROM task_steps s WHERE s.task_id = t.id AND s.target_lead_id = ?))`,
+      user.departmentSlug,
+      user.id,
+      user.id,
+    );
+  }
+  if (employeeId && user.role !== "member") {
+    const target = await userById(employeeId);
+    if (!target) throw new HttpError(422, "validation", "That person does not exist.", { employeeId: "That person does not exist." });
+    add(`t.assignee_id = ?`, employeeId);
+  }
+  if (departmentId && user.role !== "member") {
+    if (!(await departmentName(departmentId))) throw new HttpError(422, "validation", "That department does not exist.", { departmentId: "That department does not exist." });
+    add(
+      `((SELECT department_slug FROM users WHERE id = t.assignee_id) = ?
+        OR EXISTS (SELECT 1 FROM task_steps s WHERE s.task_id = t.id AND s.target_department = ?))`,
+      departmentId,
+      departmentId,
+    );
+  }
+  return { scope: scope as "mine" | "team" | "organization", where, params };
+}
+
+function taskStepReportScope(user: User, scope: "mine" | "team" | "organization", employeeId: string, departmentId: string) {
+  const where: string[] = ["s.interdepartmental = true"];
+  const params: unknown[] = [];
+  const add = (clause: string, ...values: unknown[]) => {
+    let next = clause;
+    for (const value of values) {
+      params.push(value);
+      next = next.replace("?", `$${params.length}`);
+    }
+    where.push(next);
+  };
+  if (scope === "mine") {
+    add(`s.assignee_id = ?`, user.id);
+  } else if (scope === "team") {
+    add(
+      `(s.assigned_by_id = ? OR s.target_lead_id = ?
+        OR (SELECT department_slug FROM users WHERE id = s.assignee_id) = ?)`,
+      user.id,
+      user.id,
+      user.departmentSlug,
+    );
+  }
+  if (employeeId && user.role !== "member") add(`s.assignee_id = ?`, employeeId);
+  if (departmentId && user.role !== "member") add(`s.target_department = ?`, departmentId);
+  return { where, params };
+}
+
+async function getTaskReportData(user: User, url: URL) {
+  const period = url.searchParams.get("period") || "daily";
+  if (period !== "daily" && period !== "weekly" && period !== "monthly") throw new HttpError(422, "validation", "Choose a period.", { period: "Choose a period." });
+  const date = url.searchParams.get("date") || new Date().toISOString().slice(0, 10);
+  const range = taskReportRange(period, date);
+  const scoped = await taskReportScope(user, url.searchParams.get("scope") || "mine", url.searchParams.get("employeeId") || "", url.searchParams.get("departmentId") || "");
+  const employeeId = url.searchParams.get("employeeId") || "";
+  const departmentId = url.searchParams.get("departmentId") || "";
+  const params = [...scoped.params];
+  const where = [...scoped.where];
+  appendTaskReportRange(where, params, range);
+  const rows = await q(`${taskSelect} WHERE ${where.join(" AND ")} ORDER BY t.due_at ASC`, params);
+  const tasks = rows.map((row) => mapTask(row, user.role === "admin"));
+  const inRange = (value: string | null) => Boolean(value && new Date(value) >= range.from && new Date(value) < range.to);
+  const average = (values: number[]) =>
+    values.length ? Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 10) / 10 : 0;
+
+  const created = tasks.filter((task) => inRange(task.createdAt));
+  const completed = tasks.filter((task) => inRange(task.completedAt));
+  const onTime = completed.filter((task) => task.completedAt && new Date(task.completedAt) <= new Date(task.dueAt));
+  const due = tasks.filter((task) => inRange(task.dueAt) && task.status !== "cancelled");
+  const completedDue = due.filter((task) => task.completedAt && new Date(task.completedAt) < range.to);
+  const completionHours = completed
+    .map((task) => {
+      if (!task.completedAt) return null;
+      return Math.max(0, (new Date(task.completedAt).getTime() - new Date(task.startedAt || task.createdAt).getTime()) / 3600000);
+    })
+    .filter((value): value is number => value !== null);
+  const metrics = {
+    total: tasks.length,
+    assigned: created.length,
+    due: due.length,
+    completed: completed.length,
+    completedOnTime: onTime.length,
+    overdue: tasks.filter((task) => task.overdue).length,
+    active: tasks.filter((task) => taskActive(task.status)).length,
+    blocked: tasks.filter((task) => task.status === "blocked").length,
+    completionRate: due.length ? Math.round((completedDue.length / due.length) * 100) : 0,
+    onTimeRate: completed.length ? Math.round((onTime.length / completed.length) * 100) : 0,
+    averageCompletionHours: average(completionHours),
+  };
+
+  const statusData = Object.entries(TASK_STATUS_LABEL).map(([status]) => ({
+    status: status as TaskStatus,
+    count: tasks.filter((task) => task.status === status).length,
+  }));
+
+  const buckets = period === "daily" ? 7 : period === "weekly" ? 4 : 12;
+  const trend = Array.from({ length: buckets }, (_, index) => {
+    const start = new Date(range.from.getTime() - (buckets - 1 - index) * (period === "monthly" ? 7 : 1) * 86400000);
+    const end = new Date(start.getTime() + (period === "monthly" ? 7 : 1) * 86400000);
+    return {
+      label: lagosDate(start),
+      created: created.filter((task) => new Date(task.createdAt) >= start && new Date(task.createdAt) < end).length,
+      completed: completed.filter((task) => task.completedAt && new Date(task.completedAt) >= start && new Date(task.completedAt) < end).length,
+    };
+  });
+
+  const peopleMap = new Map<string, {
+    id: string; name: string; department: string; total: number; assigned: number;
+    completed: number; onTime: number; overdue: number; hours: number;
+  }>();
+  const departmentMap = new Map<string, {
+    slug: string; name: string; members: number; total: number; assigned: number;
+    completed: number; onTime: number; overdue: number;
+  }>();
+  for (const task of tasks) {
+    const person = task.assignee;
+    if (!peopleMap.has(person.id)) {
+      peopleMap.set(person.id, {
+        id: person.id, name: person.name, department: person.departmentSlug,
+        total: 0, assigned: 0, completed: 0, onTime: 0, overdue: 0, hours: 0,
+      });
+    }
+    const entry = peopleMap.get(person.id)!;
+    entry.total += 1;
+    if (inRange(task.createdAt)) entry.assigned += 1;
+    if (inRange(task.completedAt)) {
+      entry.completed += 1;
+      if (task.completedAt && new Date(task.completedAt) <= new Date(task.dueAt)) entry.onTime += 1;
+      if (task.completedAt) {
+        entry.hours += Math.max(0, (new Date(task.completedAt).getTime() - new Date(task.startedAt || task.createdAt).getTime()) / 3600000);
+      }
+    }
+    if (task.overdue) entry.overdue += 1;
+
+    const slug = person.departmentSlug;
+    if (!departmentMap.has(slug)) {
+      departmentMap.set(slug, {
+        slug, name: (await departmentName(slug)) || slug, members: 0,
+        total: 0, assigned: 0, completed: 0, onTime: 0, overdue: 0,
+      });
+    }
+    const department = departmentMap.get(slug)!;
+    department.total += 1;
+    if (inRange(task.createdAt)) department.assigned += 1;
+    if (inRange(task.completedAt)) {
+      department.completed += 1;
+      if (task.completedAt && new Date(task.completedAt) <= new Date(task.dueAt)) department.onTime += 1;
+    }
+    if (task.overdue) department.overdue += 1;
+  }
+  for (const person of peopleMap.values()) {
+    const department = departmentMap.get(person.department);
+    if (department) department.members += 1;
+  }
+  const people = [...peopleMap.values()].map((entry) => ({
+    ...entry,
+    onTimeRate: entry.completed ? Math.round((entry.onTime / entry.completed) * 100) : 0,
+    averageCompletionHours: entry.completed ? Math.round((entry.hours / entry.completed) * 10) / 10 : 0,
+  })).sort((a, b) => b.completed - a.completed || a.name.localeCompare(b.name));
+  const departments = [...departmentMap.values()].map((entry) => ({
+    ...entry,
+    onTimeRate: entry.completed ? Math.round((entry.onTime / entry.completed) * 100) : 0,
+  })).sort((a, b) => b.completed - a.completed || a.name.localeCompare(b.name));
+
+  const stepScope = taskStepReportScope(user, scoped.scope, employeeId, departmentId);
+  const stepParams = [...stepScope.params];
+  const stepWhere = [...stepScope.where];
+  appendTaskStepReportRange(stepWhere, stepParams, range);
+  const stepRows = await q(
+    `${taskStepSelect.replace("FROM task_steps s", "FROM task_steps s JOIN tasks t ON t.id = s.task_id")} WHERE ${stepWhere.join(" AND ")} ORDER BY s.due_at ASC`,
+    stepParams,
+  );
+  const delegatedSteps = stepRows.map((row) => mapTaskStep(row, user.role === "admin"));
+  const stepCompleted = delegatedSteps.filter((step) => inRange(step.completedAt));
+  const stepOnTime = stepCompleted.filter((step) => step.completedAt && new Date(step.completedAt) <= new Date(step.dueAt));
+  const dueSteps = delegatedSteps.filter((step) => inRange(step.dueAt) && step.status !== "cancelled");
+  const completedDueSteps = dueSteps.filter((step) => step.completedAt && new Date(step.completedAt) < range.to);
+  const responseHours = delegatedSteps
+    .filter((step) => step.startedAt)
+    .map((step) => Math.max(0, (new Date(step.startedAt!).getTime() - new Date(step.createdAt).getTime()) / 3600000));
+  const stepHours = stepCompleted
+    .map((step) => {
+      if (!step.completedAt) return null;
+      return Math.max(0, (new Date(step.completedAt).getTime() - new Date(step.startedAt || step.createdAt).getTime()) / 3600000);
+    })
+    .filter((value): value is number => value !== null);
+  const delegationMetrics = {
+    total: delegatedSteps.length,
+    interdepartmental: delegatedSteps.filter((step) => step.interdepartmental).length,
+    active: delegatedSteps.filter((step) => step.status === "assigned" || step.status === "in_progress").length,
+    blocked: delegatedSteps.filter((step) => step.status === "blocked").length,
+    overdue: delegatedSteps.filter((step) => (step.status === "assigned" || step.status === "in_progress" || step.status === "blocked") && new Date(step.dueAt).getTime() < Date.now()).length,
+    completed: stepCompleted.length,
+    completionRate: dueSteps.length ? Math.round((completedDueSteps.length / dueSteps.length) * 100) : 0,
+    onTimeRate: stepCompleted.length ? Math.round((stepOnTime.length / stepCompleted.length) * 100) : 0,
+    averageResponseHours: average(responseHours),
+    averageCompletionHours: average(stepHours),
+    averageHours: average(stepHours),
+  };
+
+  return {
+    range: { from: range.from.toISOString(), to: range.to.toISOString(), period, date: range.date },
+    scope: scoped.scope,
+    metrics,
+    trend,
+    statusData,
+    people,
+    departments,
+    tasks,
+    delegatedSteps,
+    delegationMetrics,
+  };
+}
+
+function csvCell(value: unknown) {
+  const text = value === null || value === undefined ? "" : String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function csvResponse(rows: unknown[][], filename: string) {
+  const body = rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
+  return new Response(body, {
+    headers: {
+      "content-type": "text/csv; charset=utf-8",
+      "content-disposition": `attachment; filename="${filename}"`,
+      "cache-control": "private, no-store",
+    },
+  });
+}
+
+async function taskReportPdf(report: Awaited<ReturnType<typeof getTaskReportData>>, actor: User) {
+  const nodeModule = process.getBuiltinModule("module");
+  const requirePdf = nodeModule.createRequire(`${process.cwd()}/package.json`);
+  const PDFDocument = requirePdf("pdfkit") as typeof import("pdfkit");
+  const doc = new PDFDocument({ margin: 44, size: "A4" });
+  const chunks: Buffer[] = [];
+  doc.on("data", (chunk: Buffer) => chunks.push(chunk));
+  const done = new Promise<Buffer>((resolve, reject) => {
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+  });
+  const title = report.scope === "organization" ? "Task performance — organization" : report.scope === "team" ? "Task performance — team" : "My task performance";
+  doc.fontSize(20).text("VethanCon Desk", { align: "left" });
+  doc.moveDown(0.3).fontSize(12).fillColor("#5c6470").text(title);
+  doc.text(`${report.range.period} ending ${report.range.date} · ${actor.name} · generated ${new Date().toISOString().slice(0, 10)}`);
+  doc.moveDown().fillColor("#111827").fontSize(14).text("Summary");
+  doc.fontSize(10).text(
+    `Total ${report.metrics.total}  ·  Completed ${report.metrics.completed}  ·  On time ${report.metrics.completedOnTime}  ·  Overdue ${report.metrics.overdue}  ·  Completion ${report.metrics.completionRate}%`,
+  );
+  doc.moveDown().fontSize(14).text("Tasks");
+  const table = [
+    ["ID", "Task", "Assignee", "Status", "Due", "Completed"],
+    ...report.tasks.map((task) => [
+      task.id,
+      task.name.slice(0, 44),
+      task.assignee.name.slice(0, 24),
+      TASK_STATUS_LABEL[task.status],
+      task.dueAt.slice(0, 10),
+      task.completedAt ? task.completedAt.slice(0, 10) : "—",
+    ]),
+  ];
+  for (const row of table) {
+    doc.fontSize(row === table[0] ? 10 : 9).text(row.join("   |   "), { continued: false });
+  }
+  doc.moveDown().fontSize(14).text("Interdepartmental handoffs");
+  doc.fontSize(10).text(`Total ${report.delegationMetrics.total} · Completed ${report.delegationMetrics.completed} · Average hours ${report.delegationMetrics.averageHours}`);
+  doc.end();
+  return done;
+}
+
+type PreparedTaskStep = {
+  title: string;
+  description: string | null;
+  position: number;
+  required: boolean;
+  assigneeId: string;
+  assignedById: string;
+  sourceDepartment: DepartmentSlug;
+  targetDepartment: DepartmentSlug | null;
+  targetLeadId: string | null;
+  interdepartmental: boolean;
+  dueAt: Date;
+};
+
+async function prepareTaskSteps(actor: User, raw: unknown, maxDue: Date) {
+  if (raw === undefined || raw === null) return [] as PreparedTaskStep[];
+  if (!Array.isArray(raw)) throw new HttpError(422, "validation", "Steps must be a list.", { steps: "Steps must be a list." });
+  if (raw.length > 30) throw new HttpError(422, "validation", "A task can have at most 30 steps.", { steps: "A task can have at most 30 steps." });
+  const steps: PreparedTaskStep[] = [];
+  for (let index = 0; index < raw.length; index += 1) {
+    const item = raw[index];
+    if (!item || typeof item !== "object") throw new HttpError(422, "validation", "Each step needs a title and assignee.");
+    const input = item as Record<string, unknown>;
+    const title = textField(input.title, "Step title", 3, 160);
+    const description = input.description === undefined || input.description === null || input.description === ""
+      ? null
+      : textField(input.description, "Step description", 1, 2000);
+    const assignee = await canAssignStepTo(actor, String(input.assigneeId || actor.id));
+    const dueAt = parseTaskDate(input.dueAt, "Step due");
+    if (!dueAt || dueAt.getTime() > maxDue.getTime()) {
+      throw new HttpError(422, "validation", "A step cannot be due after the task.", { dueAt: "A step cannot be due after the task." });
+    }
+    const targetDepartment = input.targetDepartment ? String(input.targetDepartment) : null;
+    if (targetDepartment && !(await departmentName(targetDepartment))) {
+      throw new HttpError(422, "validation", "Choose a valid receiving department.", { targetDepartment: "Choose a valid receiving department." });
+    }
+    if (targetDepartment && assignee.departmentSlug !== targetDepartment) {
+      throw new HttpError(422, "validation", "The step assignee must belong to the receiving department.", { assigneeId: "The step assignee must belong to the receiving department." });
+    }
+    let targetLeadId: string | null = null;
+    if (input.targetLeadId) {
+      const lead = await userById(String(input.targetLeadId));
+      if (!lead || !lead.active || lead.role !== "lead" || (targetDepartment && lead.departmentSlug !== targetDepartment)) {
+        throw new HttpError(422, "validation", "Choose an active head for that department.", { targetLeadId: "Choose an active head for that department." });
+      }
+      targetLeadId = lead.id;
+    }
+    steps.push({
+      title,
+      description,
+      position: Number.isFinite(Number(input.position)) ? Number(input.position) : index + 1,
+      required: input.required !== false,
+      assigneeId: assignee.id,
+      assignedById: actor.id,
+      sourceDepartment: actor.departmentSlug as DepartmentSlug,
+      targetDepartment: targetDepartment as DepartmentSlug | null,
+      targetLeadId,
+      interdepartmental: Boolean(targetDepartment && targetDepartment !== actor.departmentSlug),
+      dueAt,
+    });
+  }
+  return steps;
+}
+
+async function insertTaskSteps(taskId: string, steps: PreparedTaskStep[]) {
+  for (const step of steps) {
+    await q(
+      `INSERT INTO task_steps
+         (id, task_id, title, description, position, required, assignee_id, assigned_by_id,
+          source_department, target_department, target_lead_id, interdepartmental, status, due_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'assigned',$13)`,
+      [
+        randomUUID(),
+        taskId,
+        step.title,
+        step.description,
+        step.position,
+        step.required,
+        step.assigneeId,
+        step.assignedById,
+        step.sourceDepartment,
+        step.targetDepartment,
+        step.targetLeadId,
+        step.interdepartmental,
+        step.dueAt,
+      ],
+    );
   }
 }
 
@@ -1458,6 +2456,7 @@ export async function handle(method: string, path: string[], request: Request): 
         id: String(row.id),
         type: String(row.type),
         ticketId: row.ticket_id ? String(row.ticket_id) : null,
+        taskId: row.task_id ? String(row.task_id) : undefined,
         departmentSlug: row.department_slug ? String(row.department_slug) : undefined,
         sentence: String(row.sentence),
         sound: String(row.sound),
@@ -1645,6 +2644,479 @@ export async function handle(method: string, path: string[], request: Request): 
         { error: { code: "inbound_disabled", message: "Reply by email is not switched on. Open the ticket in Desk." } },
         501,
       );
+    }
+
+    if (key === "GET tasks") return json(await listTasks(await requireUser(request), url));
+
+    if (method === "POST" && path[0] === "tasks" && path.length === 1) {
+      const user = await requireUser(request);
+      const body = await readJson(request);
+      const name = textField(body.name, "Name", 3, 160);
+      const description = textField(body.description, "Description", 5, 10000);
+      const expectedOutcome = body.expectedOutcome === undefined || body.expectedOutcome === null || body.expectedOutcome === ""
+        ? null
+        : textField(body.expectedOutcome, "Expected outcome", 1, 5000);
+      const assignee = await canAssignTaskTo(user, String(body.assigneeId || ""));
+      const priority = body.priority === undefined ? "medium" : body.priority;
+      if (!isTaskPriority(String(priority))) throw new HttpError(422, "validation", "Choose a priority.", { priority: "Choose a priority." });
+      const startAt = parseTaskDate(body.startAt, "Start", false);
+      const dueAt = parseTaskDate(body.dueAt, "Due");
+      if (!dueAt || dueAt.getTime() <= Date.now() + 15 * 60000) {
+        throw new HttpError(422, "validation", "Choose a due time at least 15 minutes from now.", { dueAt: "Choose a due time at least 15 minutes from now." });
+      }
+      const reminderOffsets = parseReminderOffsets(body.reminderOffsets);
+      const links = parseTaskLinks(body.resourceLinks);
+      if (user.role === "member" && body.steps && Array.isArray(body.steps) && body.steps.length > 0) {
+        throw new HttpError(403, "forbidden", "Only a head or admin can add delegated steps.");
+      }
+      const steps = await prepareTaskSteps(user, body.steps, dueAt);
+      const id = await tx(async () => {
+        const seq = await q<{ id: string }>(`SELECT 'TSK-' || nextval('task_no') AS id`);
+        const taskId = String(seq[0].id);
+        await q(
+          `INSERT INTO tasks
+             (id, name, description, expected_outcome, assignee_id, assigned_by_id, priority, status,
+              start_at, due_at, reminder_offsets)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,'assigned',$8,$9,$10::int[])`,
+          [taskId, name, description, expectedOutcome, assignee.id, user.id, String(priority), startAt, dueAt, reminderOffsets],
+        );
+        await insertTaskSteps(taskId, steps);
+        await addTaskLinkResources(taskId, user.id, links);
+        await recordTaskActivity(taskId, user.id, "CREATED", `${user.name} created ${taskId}.`, { priority: String(priority), steps: steps.length });
+        return taskId;
+      });
+      const row = await requireTask(user, id);
+      await taskNotify(id, user, "created", `${user.name} created ${id}.`);
+      return json(await taskDetail(row, user.role === "admin"), 201);
+    }
+
+    if (method === "GET" && path[0] === "tasks" && path.length === 2) {
+      const user = await requireUser(request);
+      return json(await taskDetail(await requireTask(user, path[1]), user.role === "admin"));
+    }
+
+    if (method === "PATCH" && path[0] === "tasks" && path.length === 2) {
+      const user = await requireUser(request);
+      const row = await requireTask(user, path[1]);
+      if (taskClosed(row.status as TaskStatus)) return json({ error: { code: "conflict", message: "That task is closed." } }, 409);
+      if (!(await canReviewTask(user, row))) throw new HttpError(403, "forbidden", "You cannot change this task.");
+      const body = await readJson(request);
+      if (body.assigneeId === undefined && body.priority === undefined && body.dueAt === undefined) throw new HttpError(422, "validation", "Nothing to change.");
+      let assigneeId = String(row.assignee_id);
+      const assigneeChanged = body.assigneeId !== undefined && body.assigneeId !== assigneeId;
+      if (assigneeChanged) assigneeId = (await canAssignTaskTo(user, String(body.assigneeId))).id;
+      let priority = row.priority as TaskPriority;
+      if (body.priority !== undefined) {
+        if (!isTaskPriority(String(body.priority))) throw new HttpError(422, "validation", "Choose a priority.", { priority: "Choose a priority." });
+        priority = body.priority as TaskPriority;
+      }
+      let dueAt = new Date(iso(row.due_at));
+      const dueChanged = body.dueAt !== undefined;
+      if (dueChanged) {
+        const next = parseTaskDate(body.dueAt, "Due");
+        if (!next || next.getTime() <= Date.now() + 15 * 60000) throw new HttpError(422, "validation", "Choose a valid future due time.", { dueAt: "Choose a valid future due time." });
+        dueAt = next;
+      }
+      if ((assigneeChanged || dueChanged) && !body.reason) throw new HttpError(422, "validation", "Give a reason for that change.", { reason: "Give a reason for that change." });
+      const reason = body.reason ? textField(body.reason, "Reason", 1, 500) : null;
+      await tx(async () => {
+        await q(`UPDATE tasks SET assignee_id = $2, priority = $3, due_at = $4, updated_at = now() WHERE id = $1`, [row.id, assigneeId, String(priority), dueAt]);
+        await recordTaskActivity(String(row.id), user.id, "UPDATED", `${user.name} updated ${row.id}.`, {
+          assigneeChanged,
+          dueChanged,
+          reason,
+        });
+      });
+      const next = await requireTask(user, String(row.id));
+      await taskNotify(String(row.id), user, "updated", `${user.name} updated ${row.id}.`);
+      return json(await taskDetail(next, user.role === "admin"));
+    }
+
+    if (key === "GET notifications/status") {
+      const user = await requireUser(request);
+      const due = await ensureTaskRemindersForUser(user);
+      const rows = await q<{ n: number }>(
+        `SELECT count(*)::int AS n FROM tasks
+         WHERE status IN ('assigned','in_progress','blocked','in_review','changes_requested')
+           AND (assignee_id = $1 OR assigned_by_id = $1) AND due_at <= now()`,
+        [user.id],
+      );
+      return json({ ok: true, due: Number(rows[0]?.n ?? 0), delivered: due, at: new Date().toISOString() });
+    }
+
+    if (method === "POST" && path[0] === "tasks" && path[1] === "reminders" && path[2] === "run" && path.length === 3) {
+      const user = await requireUser(request);
+      requireAdmin(user);
+      const delivered = await runTaskReminders();
+      return json({ ok: true, delivered, at: new Date().toISOString() });
+    }
+
+    if (key === "GET reports/tasks/data") {
+      const user = await requireUser(request);
+      return json(await getTaskReportData(user, url));
+    }
+
+    if (key === "GET reports/tasks") {
+      const user = await requireUser(request);
+      const report = await getTaskReportData(user, url);
+      return csvResponse(
+        [
+          ["ID", "Task", "Assignee", "Department", "Priority", "Status", "Due", "Started", "Submitted", "Completed", "On time", "Hours", "Blocked reason", "Review comment"],
+          ...report.tasks.map((task) => [
+            task.id,
+            task.name,
+            task.assignee.name,
+            task.assignee.departmentSlug,
+            TASK_PRIORITY_LABEL[task.priority],
+            task.overdue ? "OVERDUE" : TASK_STATUS_LABEL[task.status],
+            task.dueAt,
+            task.startedAt || "",
+            task.submittedAt || "",
+            task.completedAt || "",
+            task.completedAt && new Date(task.completedAt) <= new Date(task.dueAt) ? "yes" : "no",
+            task.startedAt && task.completedAt ? Math.round((new Date(task.completedAt).getTime() - new Date(task.startedAt).getTime()) / 3600) : "",
+            task.blockedReason || "",
+            task.reviewComment || "",
+          ]),
+        ],
+        `task-report-${report.range.period}-${report.range.date}.csv`,
+      );
+    }
+
+    if (key === "GET reports/tasks/pdf") {
+      const user = await requireUser(request);
+      const report = await getTaskReportData(user, url);
+      const pdf = await taskReportPdf(report, user);
+      return new Response(new Uint8Array(pdf), {
+        headers: {
+          "content-type": "application/pdf",
+          "content-disposition": `attachment; filename="task-report-${report.range.period}-${report.range.date}.pdf"`,
+          "cache-control": "private, no-store",
+        },
+      });
+    }
+
+    if (key === "GET reports/task-steps") {
+      const user = await requireUser(request);
+      const report = await getTaskReportData(user, url);
+      return csvResponse(
+        [
+          ["Task", "Step", "Source department", "Receiving department", "Receiving head", "Assignee", "Status", "Due", "Started", "Completed", "Response hours", "Completion hours"],
+          ...report.delegatedSteps.map((step) => [
+            step.taskId,
+            step.title,
+            step.sourceDepartment || "",
+            step.targetDepartment || "",
+            step.targetLead?.name || "",
+            step.assignee.name,
+            TASK_STEP_STATUS_LABEL[step.status],
+            step.dueAt,
+            step.startedAt || "",
+            step.completedAt || "",
+            step.startedAt ? Math.round((new Date(step.startedAt).getTime() - new Date(step.createdAt).getTime()) / 3600000) : "",
+            step.startedAt && step.completedAt ? Math.round((new Date(step.completedAt).getTime() - new Date(step.startedAt).getTime()) / 3600000) : "",
+          ]),
+        ],
+        `interdepartmental-task-steps-${report.range.period}-${report.range.date}.csv`,
+      );
+    }
+
+    if (method === "POST" && path[0] === "tasks" && path[2] === "start" && path.length === 3) {
+      const user = await requireUser(request);
+      const row = await requireTask(user, path[1]);
+      if (String(row.assignee_id) !== user.id) throw new HttpError(403, "forbidden", "Only the assignee can start this task.");
+      if (row.status === "in_progress") return json(await taskDetail(row, user.role === "admin"));
+      if (row.status !== "assigned" && row.status !== "changes_requested") {
+        return json({ error: { code: "conflict", message: "This task cannot be started." } }, 409);
+      }
+      await tx(async () => {
+        await q(`UPDATE tasks SET status = 'in_progress', started_at = COALESCE(started_at, now()), blocked_at = null, blocked_reason = null, updated_at = now() WHERE id = $1`, [row.id]);
+        await recordTaskActivity(String(row.id), user.id, "STARTED", `${user.name} started work.`);
+      });
+      const next = await requireTask(user, String(row.id));
+      await taskNotify(String(row.id), user, "started", `${user.name} started ${row.id}.`);
+      return json(await taskDetail(next, user.role === "admin"));
+    }
+
+    if (method === "POST" && path[0] === "tasks" && path[2] === "block" && path.length === 3) {
+      const user = await requireUser(request);
+      const row = await requireTask(user, path[1]);
+      if (String(row.assignee_id) !== user.id) throw new HttpError(403, "forbidden", "Only the assignee can block this task.");
+      if (row.status !== "assigned" && row.status !== "in_progress" && row.status !== "changes_requested") {
+        return json({ error: { code: "conflict", message: "This task cannot be blocked." } }, 409);
+      }
+      const body = await readJson(request);
+      const reason = textField(body.reason, "Reason", 1, 1000);
+      await tx(async () => {
+        await q(`UPDATE tasks SET status = 'blocked', blocked_at = now(), blocked_reason = $2, updated_at = now() WHERE id = $1`, [row.id, reason]);
+        await recordTaskActivity(String(row.id), user.id, "BLOCKED", `${user.name} blocked this task: ${reason}`, { reason });
+      });
+      const next = await requireTask(user, String(row.id));
+      await taskNotify(String(row.id), user, "blocked", `${user.name} blocked ${row.id}: ${reason}`);
+      return json(await taskDetail(next, user.role === "admin"));
+    }
+
+    if (method === "POST" && path[0] === "tasks" && path[2] === "resume" && path.length === 3) {
+      const user = await requireUser(request);
+      const row = await requireTask(user, path[1]);
+      if (String(row.assignee_id) !== user.id) throw new HttpError(403, "forbidden", "Only the assignee can resume this task.");
+      if (row.status !== "blocked") return json({ error: { code: "conflict", message: "Only a blocked task can be resumed." } }, 409);
+      await tx(async () => {
+        await q(`UPDATE tasks SET status = 'in_progress', blocked_at = null, blocked_reason = null, updated_at = now() WHERE id = $1`, [row.id]);
+        await recordTaskActivity(String(row.id), user.id, "RESUMED", `${user.name} resumed work.`);
+      });
+      const next = await requireTask(user, String(row.id));
+      await taskNotify(String(row.id), user, "resumed", `${user.name} resumed ${row.id}.`);
+      return json(await taskDetail(next, user.role === "admin"));
+    }
+
+    if (method === "POST" && path[0] === "tasks" && path[2] === "submit" && path.length === 3) {
+      const user = await requireUser(request);
+      const row = await requireTask(user, path[1]);
+      if (String(row.assignee_id) !== user.id) throw new HttpError(403, "forbidden", "Only the assignee can submit this task.");
+      if (row.status !== "in_progress" && row.status !== "changes_requested") {
+        return json({ error: { code: "conflict", message: "This task cannot be submitted." } }, 409);
+      }
+      const body = await readJson(request);
+      const note = body.note ? textField(body.note, "Note", 1, 5000) : null;
+      const steps = await taskStepsFor(String(row.id), false);
+      if (steps.some((step) => step.required && step.status !== "completed")) {
+        throw new HttpError(422, "validation", "Finish every required step before submitting.");
+      }
+      const assigneeUser = await userById(String(row.assignee_id));
+      const selfManaged = String(row.assignee_id) === String(row.assigned_by_id) && assigneeUser?.role === "member";
+      const nextStatus: TaskStatus = selfManaged ? "completed" : "in_review";
+      await tx(async () => {
+        await q(
+          `UPDATE tasks SET status = $2, submission_note = $3, submitted_at = now(),
+             approved_at = CASE WHEN $2 = 'completed' THEN now() ELSE NULL END,
+             completed_at = CASE WHEN $2 = 'completed' THEN now() ELSE NULL END,
+             updated_at = now()
+           WHERE id = $1`,
+          [row.id, nextStatus, note],
+        );
+        await recordTaskActivity(String(row.id), user.id, selfManaged ? "COMPLETED" : "SUBMITTED", selfManaged ? `${user.name} completed ${row.id}.` : `${user.name} submitted ${row.id} for review.`, { note });
+      });
+      const next = await requireTask(user, String(row.id));
+      await taskNotify(String(row.id), user, selfManaged ? "completed" : "submitted", selfManaged ? `${user.name} completed ${row.id}.` : `${user.name} submitted ${row.id} for review.`);
+      return json(await taskDetail(next, user.role === "admin"));
+    }
+
+    if (method === "POST" && path[0] === "tasks" && path[2] === "approve" && path.length === 3) {
+      const user = await requireUser(request);
+      const row = await requireTask(user, path[1]);
+      if (!(await canReviewTask(user, row))) throw new HttpError(403, "forbidden", "You cannot review this task.");
+      if (row.status !== "in_review") return json({ error: { code: "conflict", message: "Only a task in review can be approved." } }, 409);
+      const body = await readJson(request);
+      const comment = body.comment ? textField(body.comment, "Comment", 1, 5000) : null;
+      await tx(async () => {
+        await q(
+          `UPDATE tasks SET status = 'completed', review_comment = $2, approved_at = now(), completed_at = now(), updated_at = now() WHERE id = $1`,
+          [row.id, comment],
+        );
+        await recordTaskActivity(String(row.id), user.id, "APPROVED", `${user.name} approved ${row.id}.`, { comment });
+      });
+      const next = await requireTask(user, String(row.id));
+      await taskNotify(String(row.id), user, "approved", `${user.name} approved ${row.id}.`);
+      return json(await taskDetail(next, user.role === "admin"));
+    }
+
+    if (method === "POST" && path[0] === "tasks" && path[2] === "request-changes" && path.length === 3) {
+      const user = await requireUser(request);
+      const row = await requireTask(user, path[1]);
+      if (!(await canReviewTask(user, row))) throw new HttpError(403, "forbidden", "You cannot review this task.");
+      if (row.status !== "in_review") return json({ error: { code: "conflict", message: "Only a task in review can be sent back." } }, 409);
+      const body = await readJson(request);
+      const comment = textField(body.comment, "Comment", 1, 5000);
+      await tx(async () => {
+        await q(`UPDATE tasks SET status = 'changes_requested', review_comment = $2, updated_at = now() WHERE id = $1`, [row.id, comment]);
+        await recordTaskActivity(String(row.id), user.id, "CHANGES_REQUESTED", `${user.name} requested changes on ${row.id}.`, { comment });
+      });
+      const next = await requireTask(user, String(row.id));
+      await taskNotify(String(row.id), user, "changes_requested", `${user.name} requested changes on ${row.id}.`);
+      return json(await taskDetail(next, user.role === "admin"));
+    }
+
+    if (method === "POST" && path[0] === "tasks" && path[2] === "cancel" && path.length === 3) {
+      const user = await requireUser(request);
+      const row = await requireTask(user, path[1]);
+      if (!(await canReviewTask(user, row))) throw new HttpError(403, "forbidden", "You cannot cancel this task.");
+      if (taskClosed(row.status as TaskStatus)) return json({ error: { code: "conflict", message: "That task is already closed." } }, 409);
+      const body = await readJson(request);
+      const reason = textField(body.reason, "Reason", 1, 1000);
+      await tx(async () => {
+        await q(`UPDATE tasks SET status = 'cancelled', cancelled_at = now(), review_comment = $2, updated_at = now() WHERE id = $1`, [row.id, reason]);
+        await q(`UPDATE task_steps SET status = 'cancelled', updated_at = now() WHERE task_id = $1 AND status IN ('assigned','in_progress','blocked')`, [row.id]);
+        await recordTaskActivity(String(row.id), user.id, "CANCELLED", `${user.name} cancelled ${row.id}.`, { reason });
+      });
+      const next = await requireTask(user, String(row.id));
+      await taskNotify(String(row.id), user, "cancelled", `${user.name} cancelled ${row.id}.`);
+      return json(await taskDetail(next, user.role === "admin"));
+    }
+
+    if (method === "POST" && path[0] === "tasks" && path[2] === "comments" && path.length === 3) {
+      const user = await requireUser(request);
+      const row = await requireTask(user, path[1]);
+      const body = await readJson(request);
+      const note = textField(body.body, "Comment", 1, 5000);
+      await tx(async () => {
+        await q(`INSERT INTO task_comments (id, task_id, author_id, body) VALUES ($1,$2,$3,$4)`, [randomUUID(), row.id, user.id, note]);
+        await recordTaskActivity(String(row.id), user.id, "COMMENTED", `${user.name} added a comment.`);
+      });
+      await taskNotify(String(row.id), user, "commented", `${user.name} commented on ${row.id}.`);
+      return json(await taskDetail(await requireTask(user, String(row.id)), user.role === "admin"), 201);
+    }
+
+    if (method === "POST" && path[0] === "tasks" && path[2] === "resources" && path.length === 3) {
+      const user = await requireUser(request);
+      const row = await requireTask(user, path[1]);
+      if (taskClosed(row.status as TaskStatus)) return json({ error: { code: "conflict", message: "That task is closed." } }, 409);
+      const form = await request.formData();
+      const links = parseTaskLinks(form.get("links"));
+      const files = form.getAll("files").filter((item): item is File => item instanceof File);
+      if (files.length > 10) return json({ error: { code: "validation", message: "Attach at most 10 files." } }, 422);
+      await addTaskLinkResources(String(row.id), user.id, links);
+      for (const file of files) {
+        if (file.size > 5 * 1024 * 1024) return json({ error: { code: "payload_too_large", message: "Files must be 5 MB or smaller." } }, 413);
+        const bytes = Buffer.from(await file.arrayBuffer());
+        const mediaType = sniff(bytes);
+        if (!mediaType) return json({ error: { code: "unsupported", message: "Use a PNG, JPEG, WEBP, or PDF." } }, 415);
+        const id = randomUUID();
+        const name = file.name.replace(/[/\\]/g, "").slice(0, 180) || "file";
+        const storageKey = await storeFile(id, bytes, mediaType, name, uploads);
+        await q(
+          `INSERT INTO task_resources (id, task_id, uploader_id, type, title, file_name, media_type, size, storage_key)
+           VALUES ($1,$2,$3,'file',$4,$5,$6,$7,$8)`,
+          [id, row.id, user.id, name, name, mediaType, bytes.length, storageKey],
+        );
+      }
+      if (links.length || files.length) {
+        await recordTaskActivity(String(row.id), user.id, "RESOURCE_ADDED", `${user.name} added ${links.length + files.length} resource(s).`);
+        await taskNotify(String(row.id), user, "resource_added", `${user.name} added evidence to ${row.id}.`);
+      }
+      return json(await taskDetail(await requireTask(user, String(row.id)), user.role === "admin"));
+    }
+
+    if (method === "GET" && path[0] === "tasks" && path[1] === "resources" && path.length === 3) {
+      const user = await requireUser(request);
+      const rows = await q(
+        `SELECT r.type, r.title, r.file_name, r.media_type, r.storage_key, r.task_id
+         FROM task_resources r WHERE r.id = $1`,
+        [path[2]],
+      );
+      const resource = rows[0];
+      if (!resource || resource.type !== "file") throw new HttpError(404, "not_found", "That file does not exist.");
+      await requireTask(user, String(resource.task_id));
+      const stored = await readStoredFile(String(resource.storage_key), uploads);
+      if (!stored) throw new HttpError(404, "not_found", "That file does not exist.");
+      const name = String(resource.file_name || resource.title).replace(/["\r\n]/g, "");
+      const mediaType = String(resource.media_type || stored.mediaType || "application/octet-stream");
+      return new Response(new Uint8Array(stored.bytes), {
+        headers: {
+          "content-type": mediaType,
+          "content-disposition": `attachment; filename="${name}"`,
+          "cache-control": "private, max-age=300",
+        },
+      });
+    }
+
+    if (method === "POST" && path[0] === "tasks" && path[2] === "steps" && path.length === 3) {
+      const user = await requireUser(request);
+      if (user.role === "member") throw new HttpError(403, "forbidden", "Only a head or admin can add delegated steps.");
+      const row = await requireTask(user, path[1]);
+      if (taskClosed(row.status as TaskStatus)) return json({ error: { code: "conflict", message: "That task is closed." } }, 409);
+      const body = await readJson(request);
+      const raw = body.step !== undefined ? [body.step] : body.steps;
+      const steps = await prepareTaskSteps(user, raw, new Date(iso(row.due_at)));
+      if (!steps.length) throw new HttpError(422, "validation", "Add at least one step.");
+      await tx(async () => {
+        await insertTaskSteps(String(row.id), steps);
+        await recordTaskActivity(String(row.id), user.id, "STEP_ADDED", `${user.name} added ${steps.length} step(s).`);
+      });
+      await taskNotify(String(row.id), user, "step_added", `${user.name} added steps to ${row.id}.`);
+      return json(await taskDetail(await requireTask(user, String(row.id)), user.role === "admin"));
+    }
+
+    if (method === "POST" && path[0] === "task-steps" && path[2] === "start" && path.length === 3) {
+      const user = await requireUser(request);
+      const step = await requireStep(user, path[1]);
+      if (String(step.assignee_id) !== user.id) throw new HttpError(403, "forbidden", "Only the step assignee can start it.");
+      if (step.status === "in_progress") return json(await taskDetail(await requireTask(user, String(step.task_id)), user.role === "admin"));
+      if (step.status !== "assigned") return json({ error: { code: "conflict", message: "That step cannot be started." } }, 409);
+      await tx(async () => {
+        await q(`UPDATE task_steps SET status = 'in_progress', started_at = now(), updated_at = now() WHERE id = $1`, [step.id]);
+        await recordTaskActivity(String(step.task_id), user.id, "STEP_STARTED", `${user.name} started step “${step.title}”.`);
+      });
+      await taskNotify(String(step.task_id), user, "step_started", `${user.name} started a delegated step.`);
+      return json(await taskDetail(await requireTask(user, String(step.task_id)), user.role === "admin"));
+    }
+
+    if (method === "POST" && path[0] === "task-steps" && path[2] === "block" && path.length === 3) {
+      const user = await requireUser(request);
+      const step = await requireStep(user, path[1]);
+      if (String(step.assignee_id) !== user.id) throw new HttpError(403, "forbidden", "Only the step assignee can block it.");
+      if (step.status !== "assigned" && step.status !== "in_progress") return json({ error: { code: "conflict", message: "That step cannot be blocked." } }, 409);
+      const body = await readJson(request);
+      const reason = textField(body.reason, "Reason", 1, 1000);
+      await tx(async () => {
+        await q(`UPDATE task_steps SET status = 'blocked', blocked_at = now(), blocked_reason = $2, updated_at = now() WHERE id = $1`, [step.id, reason]);
+        await recordTaskActivity(String(step.task_id), user.id, "STEP_BLOCKED", `${user.name} blocked step “${step.title}”: ${reason}`, { reason });
+      });
+      await taskNotify(String(step.task_id), user, "step_blocked", `${user.name} blocked a delegated step.`);
+      return json(await taskDetail(await requireTask(user, String(step.task_id)), user.role === "admin"));
+    }
+
+    if (method === "POST" && path[0] === "task-steps" && path[2] === "resume" && path.length === 3) {
+      const user = await requireUser(request);
+      const step = await requireStep(user, path[1]);
+      if (String(step.assignee_id) !== user.id) throw new HttpError(403, "forbidden", "Only the step assignee can resume it.");
+      if (step.status !== "blocked") return json({ error: { code: "conflict", message: "Only a blocked step can be resumed." } }, 409);
+      await tx(async () => {
+        await q(`UPDATE task_steps SET status = 'in_progress', blocked_at = null, blocked_reason = null, updated_at = now() WHERE id = $1`, [step.id]);
+        await recordTaskActivity(String(step.task_id), user.id, "STEP_RESUMED", `${user.name} resumed step “${step.title}”.`);
+      });
+      await taskNotify(String(step.task_id), user, "step_resumed", `${user.name} resumed a delegated step.`);
+      return json(await taskDetail(await requireTask(user, String(step.task_id)), user.role === "admin"));
+    }
+
+    if (method === "POST" && path[0] === "task-steps" && path[2] === "complete" && path.length === 3) {
+      const user = await requireUser(request);
+      const step = await requireStep(user, path[1]);
+      if (String(step.assignee_id) !== user.id) throw new HttpError(403, "forbidden", "Only the step assignee can complete it.");
+      if (step.status !== "in_progress") return json({ error: { code: "conflict", message: "Start the step before completing it." } }, 409);
+      const body = await readJson(request);
+      const note = body.note ? textField(body.note, "Note", 1, 5000) : null;
+      await tx(async () => {
+        await q(`UPDATE task_steps SET status = 'completed', completed_at = now(), completion_note = $2, updated_at = now() WHERE id = $1`, [step.id, note]);
+        await recordTaskActivity(String(step.task_id), user.id, "STEP_COMPLETED", `${user.name} completed step “${step.title}”.`, { note });
+      });
+      await taskNotify(String(step.task_id), user, "step_completed", `${user.name} completed a delegated step.`);
+      return json(await taskDetail(await requireTask(user, String(step.task_id)), user.role === "admin"));
+    }
+
+    if (method === "POST" && path[0] === "task-steps" && path[2] === "reassign" && path.length === 3) {
+      const user = await requireUser(request);
+      const step = await requireStep(user, path[1]);
+      const allowed = user.role === "admin" || step.assigned_by_id === user.id || step.target_lead_id === user.id;
+      if (!allowed) throw new HttpError(403, "forbidden", "You cannot reassign this step.");
+      if (step.status === "completed" || step.status === "cancelled") return json({ error: { code: "conflict", message: "That step is closed." } }, 409);
+      const body = await readJson(request);
+      const assignee = await canAssignStepTo(user, String(body.assigneeId || ""));
+      const targetDepartment = step.target_department ? String(step.target_department) : null;
+      if (targetDepartment && assignee.departmentSlug !== targetDepartment) {
+        throw new HttpError(422, "validation", "The replacement must belong to the receiving department.", { assigneeId: "The replacement must belong to the receiving department." });
+      }
+      await tx(async () => {
+        await q(
+          `UPDATE task_steps SET assignee_id = $2, target_department = $3, status = 'assigned',
+             started_at = null, blocked_at = null, blocked_reason = null, completed_at = null,
+             completion_note = null, updated_at = now() WHERE id = $1`,
+          [step.id, assignee.id, targetDepartment ?? assignee.departmentSlug],
+        );
+        await recordTaskActivity(String(step.task_id), user.id, "STEP_REASSIGNED", `${user.name} reassigned step “${step.title}” to ${assignee.name}.`, { assigneeId: assignee.id });
+      });
+      await taskNotify(String(step.task_id), user, "step_reassigned", `${user.name} reassigned a delegated step.`);
+      return json(await taskDetail(await requireTask(user, String(step.task_id)), user.role === "admin"));
     }
 
     return json({ error: { code: "not_found", message: "That route does not exist." } }, 404);

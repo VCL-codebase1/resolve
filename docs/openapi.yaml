@@ -6,8 +6,12 @@ info:
   description: |
     Session-cookie API for Desk. Paths are relative to `/api/v1`.
 
-    The human ticket id (`VC-1042`) is the ticket identifier in paths.
-    User ids are UUIDs.
+    The human ticket id (`VC-1042`) and human task id (`TSK-1042`) are the
+    identifiers in their paths. User ids and step/resource ids are UUIDs.
+
+    Tasks are assigned work with review, delegated steps, evidence, comments,
+    activity, reports and reminders. Role mapping from vcglone is
+    `EMPLOYEE=member`, `MANAGER=lead`, `HR_ADMIN`/`SUPER_ADMIN=admin`.
 
     `POST /inbound/email` is specified and disabled. It returns 501
     until reply-by-email is switched on. It must not create messages.
@@ -19,6 +23,8 @@ tags:
   - name: Departments
   - name: People
   - name: Tickets
+  - name: Tasks
+  - name: Task reports
   - name: Notifications
   - name: Badges
   - name: Admin
@@ -969,6 +975,577 @@ paths:
                       code: inbound_disabled
                       message: Reply by email is not switched on. Open the ticket in Desk.
 
+  /tasks:
+    get:
+      tags: [Tasks]
+      summary: List tasks
+      operationId: listTasks
+      parameters:
+        - name: scope
+          in: query
+          schema:
+            type: string
+            enum: [mine, team, organization]
+            default: mine
+          description: "`team` needs lead or admin; `organization` needs admin."
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [assigned, in_progress, blocked, in_review, changes_requested, completed, cancelled, overdue]
+        - name: priority
+          in: query
+          schema:
+            $ref: "#/components/schemas/TaskPriority"
+        - name: department
+          in: query
+          schema:
+            $ref: "#/components/schemas/DepartmentSlug"
+        - name: q
+          in: query
+          schema:
+            type: string
+        - name: cursor
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 30
+      responses:
+        "200":
+          description: Page of tasks, newest activity first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/Validation"
+    post:
+      tags: [Tasks]
+      summary: Create a task
+      description: |
+        Members may assign only themselves and cannot add delegated steps.
+        Leads may assign inside their department. Admins may assign anyone who
+        is not an admin. Due must be at least 15 minutes away.
+      operationId: createTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskCreateRequest"
+      responses:
+        "201":
+          description: Created task detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "422":
+          $ref: "#/components/responses/Validation"
+
+  /tasks/{id}:
+    parameters:
+      - $ref: "#/components/parameters/TaskId"
+    get:
+      tags: [Tasks]
+      summary: One task
+      operationId: getTask
+      responses:
+        "200":
+          description: Task detail with steps, evidence, comments and activity.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Tasks]
+      summary: Change assignee, priority or due time
+      description: Reviewer only. A reason is required when assignee or due time changes.
+      operationId: updateTask
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TaskPatchRequest"
+      responses:
+        "200":
+          description: Updated task detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Validation"
+
+  /tasks/{id}/start:
+    post:
+      tags: [Tasks]
+      summary: Start work
+      description: Assignee only. Allowed from `assigned` or `changes_requested`; idempotent on `in_progress`. An existing `startedAt` is preserved when work restarts after changes are requested.
+      operationId: startTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Task detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskDetail"
+        "409":
+          $ref: "#/components/responses/Conflict"
+  /tasks/{id}/block:
+    post:
+      tags: [Tasks]
+      summary: Block work
+      description: Assignee only. Allowed from `assigned`, `in_progress`, or `changes_requested`.
+      operationId: blockTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReasonRequest"
+      responses:
+        "200":
+          description: Task detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskDetail"
+        "422":
+          $ref: "#/components/responses/Validation"
+  /tasks/{id}/resume:
+    post:
+      tags: [Tasks]
+      summary: Resume a blocked task
+      operationId: resumeTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      responses:
+        "200":
+          description: Task detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskDetail"
+  /tasks/{id}/submit:
+    post:
+      tags: [Tasks]
+      summary: Submit for review
+      description: Assignee only. Every required step must be completed. A self-assigned task owned by a member completes directly; lead and admin self-assignments go to review.
+      operationId: submitTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NoteRequest"
+      responses:
+        "200":
+          description: Task detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskDetail"
+  /tasks/{id}/approve:
+    post:
+      tags: [Tasks]
+      summary: Approve a task in review
+      operationId: approveTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NoteRequest"
+      responses:
+        "200":
+          description: Task detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskDetail"
+  /tasks/{id}/request-changes:
+    post:
+      tags: [Tasks]
+      summary: Send a task back for changes
+      operationId: requestTaskChanges
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewRequest"
+      responses:
+        "200":
+          description: Task detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskDetail"
+  /tasks/{id}/cancel:
+    post:
+      tags: [Tasks]
+      summary: Cancel a task
+      description: Reviewer only. The reason is stored as the review comment and open steps are cancelled.
+      operationId: cancelTask
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReasonRequest"
+      responses:
+        "200":
+          description: Task detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskDetail"
+  /tasks/{id}/comments:
+    post:
+      tags: [Tasks]
+      summary: Add a comment
+      operationId: addTaskComment
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommentRequest"
+      responses:
+        "201":
+          description: Task detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskDetail"
+  /tasks/{id}/resources:
+    post:
+      tags: [Tasks]
+      summary: Add evidence
+      description: Multipart form with a JSON `links` array and up to 10 `files`. PNG, JPEG, WEBP, PDF; 5 MB each.
+      operationId: addTaskResource
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                links:
+                  type: string
+                  description: JSON-encoded array of http/https URLs.
+                files:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+      responses:
+        "200":
+          description: Task detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskDetail"
+  /tasks/{taskId}/resources/{resourceId}:
+    get:
+      tags: [Tasks]
+      summary: Download a task file
+      operationId: getTaskResource
+      parameters:
+        - name: taskId
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/TaskId"
+        - name: resourceId
+          in: path
+          required: true
+          schema:
+            $ref: "#/components/schemas/Uuid"
+      responses:
+        "200":
+          description: File bytes with a private attachment disposition.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /tasks/{id}/steps:
+    post:
+      tags: [Tasks]
+      summary: Add delegated steps
+      description: Lead or admin only. Each step may name a receiving department and its head; the assignee must belong to that department.
+      operationId: addTaskSteps
+      parameters:
+        - $ref: "#/components/parameters/TaskId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [steps]
+              properties:
+                steps:
+                  type: array
+                  minItems: 1
+                  maxItems: 30
+                  items:
+                    $ref: "#/components/schemas/TaskStepRequest"
+                step:
+                  $ref: "#/components/schemas/TaskStepRequest"
+      responses:
+        "200":
+          description: Task detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskDetail"
+
+  /task-steps/{id}/start:
+    post:
+      tags: [Tasks]
+      summary: Start a step
+      operationId: startTaskStep
+      parameters:
+        - $ref: "#/components/parameters/TaskStepId"
+      responses:
+        "200":
+          description: Parent task detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskDetail"
+  /task-steps/{id}/block:
+    post:
+      tags: [Tasks]
+      summary: Block a step
+      operationId: blockTaskStep
+      parameters:
+        - $ref: "#/components/parameters/TaskStepId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReasonRequest"
+      responses:
+        "200":
+          description: Parent task detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskDetail"
+  /task-steps/{id}/resume:
+    post:
+      tags: [Tasks]
+      summary: Resume a blocked step
+      operationId: resumeTaskStep
+      parameters:
+        - $ref: "#/components/parameters/TaskStepId"
+      responses:
+        "200":
+          description: Parent task detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskDetail"
+  /task-steps/{id}/complete:
+    post:
+      tags: [Tasks]
+      summary: Complete a step
+      operationId: completeTaskStep
+      parameters:
+        - $ref: "#/components/parameters/TaskStepId"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/NoteRequest"
+      responses:
+        "200":
+          description: Parent task detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskDetail"
+  /task-steps/{id}/reassign:
+    post:
+      tags: [Tasks]
+      summary: Reassign a step
+      description: The assigning head, the receiving head, or an admin. The replacement must belong to the step’s receiving department.
+      operationId: reassignTaskStep
+      parameters:
+        - $ref: "#/components/parameters/TaskStepId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReassignRequest"
+      responses:
+        "200":
+          description: Parent task detail.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskDetail"
+
+  /notifications/status:
+    get:
+      tags: [Notifications]
+      summary: Task reminder status
+      description: Delivers any reminders already due for the signed-in person and reports their state.
+      operationId: taskReminderStatus
+      responses:
+        "200":
+          description: Reminder state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskReminderStatus"
+  /tasks/reminders/run:
+    post:
+      tags: [Tasks]
+      summary: Deliver all due task reminders
+      description: Admin only. Intended for a cron or manual trigger on serverless deployments.
+      operationId: runTaskReminders
+      responses:
+        "200":
+          description: Delivery result.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, delivered, at]
+                properties:
+                  ok:
+                    type: boolean
+                    enum: [true]
+                  delivered:
+                    type: integer
+                  at:
+                    type: string
+                    format: date-time
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /reports/tasks/data:
+    get:
+      tags: [Task reports]
+      summary: Task report JSON
+      operationId: taskReportData
+      parameters:
+        - $ref: "#/components/parameters/TaskReportScope"
+        - $ref: "#/components/parameters/TaskReportPeriod"
+        - $ref: "#/components/parameters/TaskReportDate"
+        - $ref: "#/components/parameters/TaskReportEmployeeId"
+        - $ref: "#/components/parameters/TaskReportDepartmentId"
+      responses:
+        "200":
+          description: Report data.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TaskReport"
+  /reports/tasks:
+    get:
+      tags: [Task reports]
+      summary: Task report CSV
+      operationId: taskReportCsv
+      parameters:
+        - $ref: "#/components/parameters/TaskReportScope"
+        - $ref: "#/components/parameters/TaskReportPeriod"
+        - $ref: "#/components/parameters/TaskReportDate"
+        - $ref: "#/components/parameters/TaskReportEmployeeId"
+        - $ref: "#/components/parameters/TaskReportDepartmentId"
+      responses:
+        "200":
+          description: CSV attachment.
+          content:
+            text/csv:
+              schema:
+                type: string
+  /reports/tasks/pdf:
+    get:
+      tags: [Task reports]
+      summary: Task report PDF
+      operationId: taskReportPdf
+      parameters:
+        - $ref: "#/components/parameters/TaskReportScope"
+        - $ref: "#/components/parameters/TaskReportPeriod"
+        - $ref: "#/components/parameters/TaskReportDate"
+        - $ref: "#/components/parameters/TaskReportEmployeeId"
+        - $ref: "#/components/parameters/TaskReportDepartmentId"
+      responses:
+        "200":
+          description: PDF attachment.
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+  /reports/task-steps:
+    get:
+      tags: [Task reports]
+      summary: Interdepartmental step CSV
+      operationId: taskStepReportCsv
+      parameters:
+        - $ref: "#/components/parameters/TaskReportScope"
+        - $ref: "#/components/parameters/TaskReportPeriod"
+        - $ref: "#/components/parameters/TaskReportDate"
+        - $ref: "#/components/parameters/TaskReportEmployeeId"
+        - $ref: "#/components/parameters/TaskReportDepartmentId"
+      responses:
+        "200":
+          description: CSV attachment.
+          content:
+            text/csv:
+              schema:
+                type: string
+
 components:
   securitySchemes:
     sessionCookie:
@@ -984,6 +1561,48 @@ components:
       required: true
       schema:
         $ref: "#/components/schemas/TicketId"
+    TaskId:
+      name: id
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/TaskId"
+    TaskStepId:
+      name: id
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/Uuid"
+    TaskReportScope:
+      name: scope
+      in: query
+      schema:
+        type: string
+        enum: [mine, team, organization]
+        default: mine
+    TaskReportPeriod:
+      name: period
+      in: query
+      schema:
+        type: string
+        enum: [daily, weekly, monthly]
+        default: daily
+    TaskReportDate:
+      name: date
+      in: query
+      schema:
+        type: string
+        format: date
+    TaskReportEmployeeId:
+      name: employeeId
+      in: query
+      schema:
+        $ref: "#/components/schemas/Uuid"
+    TaskReportDepartmentId:
+      name: departmentId
+      in: query
+      schema:
+        $ref: "#/components/schemas/DepartmentSlug"
     UserId:
       name: userId
       in: path
@@ -1024,6 +1643,12 @@ components:
             $ref: "#/components/schemas/Error"
     Validation:
       description: A field is missing or out of range.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: The record is closed, already in that state, or the transition is not allowed.
       content:
         application/json:
           schema:
@@ -1514,12 +2139,17 @@ components:
           $ref: "#/components/schemas/Uuid"
         type:
           type: string
-          enum: [ticket.raised, ticket.replied, ticket.assigned, ticket.status_changed, department.outreach]
+          enum: [ticket.raised, ticket.replied, ticket.assigned, ticket.status_changed, department.outreach, task.created, task.updated, task.started, task.blocked, task.resumed, task.submitted, task.approved, task.changes_requested, task.completed, task.cancelled, task.commented, task.resource_added, task.step_added, task.step_started, task.step_blocked, task.step_resumed, task.step_completed, task.step_reassigned, task.reminder]
         ticketId:
           oneOf:
             - $ref: "#/components/schemas/TicketId"
             - type: "null"
-          description: Null when type is department.outreach.
+          description: Null for department.outreach and task.* notifications.
+        taskId:
+          oneOf:
+            - $ref: "#/components/schemas/TaskId"
+            - type: "null"
+          description: Set for task.* notifications; use it to open the task detail.
         departmentSlug:
           $ref: "#/components/schemas/DepartmentSlug"
           description: Set when type is department.outreach.
@@ -1621,3 +2251,549 @@ components:
           description: The Message-ID this mail answers. Should match a receipt.
         subject:
           type: string
+
+    TaskId:
+      type: string
+      pattern: "^TSK-[1-9][0-9]*$"
+      description: Human task id allocated from an never-resetting sequence.
+    TaskStatus:
+      type: string
+      enum: [assigned, in_progress, blocked, in_review, changes_requested, completed, cancelled]
+    TaskStepStatus:
+      type: string
+      enum: [assigned, in_progress, blocked, completed, cancelled]
+    TaskPriority:
+      type: string
+      enum: [low, medium, high, urgent]
+    TaskResourceType:
+      type: string
+      enum: [link, file]
+
+    Task:
+      type: object
+      required: [id, name, description, assignee, assignedBy, priority, status, dueAt, reminderOffsets, overdue, createdAt, updatedAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/TaskId"
+        name:
+          type: string
+        description:
+          type: string
+        expectedOutcome:
+          type: [string, "null"]
+        assignee:
+          $ref: "#/components/schemas/Person"
+        assignedBy:
+          $ref: "#/components/schemas/Person"
+        priority:
+          $ref: "#/components/schemas/TaskPriority"
+        status:
+          $ref: "#/components/schemas/TaskStatus"
+        startAt:
+          type: [string, "null"]
+          format: date-time
+        dueAt:
+          type: string
+          format: date-time
+        reminderOffsets:
+          type: array
+          description: Minutes before due at which reminders are sent. Zero means due time.
+          items:
+            type: integer
+        blockedReason:
+          type: [string, "null"]
+        submissionNote:
+          type: [string, "null"]
+        reviewComment:
+          type: [string, "null"]
+        startedAt:
+          type: [string, "null"]
+          format: date-time
+        blockedAt:
+          type: [string, "null"]
+          format: date-time
+        submittedAt:
+          type: [string, "null"]
+          format: date-time
+        approvedAt:
+          type: [string, "null"]
+          format: date-time
+        completedAt:
+          type: [string, "null"]
+          format: date-time
+        cancelledAt:
+          type: [string, "null"]
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        overdue:
+          type: boolean
+          description: True only while the task is active and its due time has passed.
+
+    TaskStep:
+      type: object
+      required: [id, taskId, title, position, required, assignee, assignedBy, interdepartmental, status, dueAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        taskId:
+          $ref: "#/components/schemas/TaskId"
+        title:
+          type: string
+        description:
+          type: [string, "null"]
+        position:
+          type: integer
+        required:
+          type: boolean
+        assignee:
+          $ref: "#/components/schemas/Person"
+        assignedBy:
+          $ref: "#/components/schemas/Person"
+        sourceDepartment:
+          type: [string, "null"]
+        targetDepartment:
+          type: [string, "null"]
+        targetLead:
+          oneOf:
+            - $ref: "#/components/schemas/Person"
+            - type: "null"
+        interdepartmental:
+          type: boolean
+          description: True when the receiving department differs from the assigning department.
+        status:
+          $ref: "#/components/schemas/TaskStepStatus"
+        dueAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: [string, "null"]
+          format: date-time
+        blockedAt:
+          type: [string, "null"]
+          format: date-time
+        blockedReason:
+          type: [string, "null"]
+        completedAt:
+          type: [string, "null"]
+          format: date-time
+        completionNote:
+          type: [string, "null"]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    TaskResource:
+      type: object
+      required: [id, taskId, uploader, type, title, createdAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        taskId:
+          $ref: "#/components/schemas/TaskId"
+        uploader:
+          $ref: "#/components/schemas/Person"
+        type:
+          $ref: "#/components/schemas/TaskResourceType"
+        title:
+          type: string
+        url:
+          type: [string, "null"]
+        fileName:
+          type: [string, "null"]
+        mediaType:
+          type: [string, "null"]
+        size:
+          type: [integer, "null"]
+        createdAt:
+          type: string
+          format: date-time
+
+    TaskComment:
+      type: object
+      required: [id, taskId, author, body, createdAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        taskId:
+          $ref: "#/components/schemas/TaskId"
+        author:
+          $ref: "#/components/schemas/Person"
+        body:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    TaskActivity:
+      type: object
+      required: [id, taskId, action, message, createdAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        taskId:
+          $ref: "#/components/schemas/TaskId"
+        actor:
+          oneOf:
+            - $ref: "#/components/schemas/Person"
+            - type: "null"
+        action:
+          type: string
+          description: Uppercase stage key such as CREATED, STARTED, BLOCKED or APPROVED.
+        message:
+          type: string
+        metadata:
+          type: [object, "null"]
+        createdAt:
+          type: string
+          format: date-time
+
+    TaskDetail:
+      allOf:
+        - $ref: "#/components/schemas/Task"
+        - type: object
+          required: [steps, resources, comments, activities]
+          properties:
+            steps:
+              type: array
+              items:
+                $ref: "#/components/schemas/TaskStep"
+            resources:
+              type: array
+              items:
+                $ref: "#/components/schemas/TaskResource"
+            comments:
+              type: array
+              items:
+                $ref: "#/components/schemas/TaskComment"
+            activities:
+              type: array
+              items:
+                $ref: "#/components/schemas/TaskActivity"
+
+    TaskPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Task"
+        nextCursor:
+          type: [string, "null"]
+
+    TaskStepRequest:
+      type: object
+      description: When targetDepartment is set, the assignee must belong to that department and targetLeadId must be an active lead there.
+      required: [title, assigneeId, dueAt]
+      properties:
+        title:
+          type: string
+          minLength: 3
+          maxLength: 160
+        description:
+          type: string
+        position:
+          type: integer
+        required:
+          type: boolean
+          default: true
+        assigneeId:
+          $ref: "#/components/schemas/Uuid"
+        dueAt:
+          type: string
+          format: date-time
+        targetDepartment:
+          oneOf:
+            - $ref: "#/components/schemas/DepartmentSlug"
+            - type: "null"
+        targetLeadId:
+          oneOf:
+            - $ref: "#/components/schemas/Uuid"
+            - type: "null"
+
+    TaskCreateRequest:
+      type: object
+      required: [name, description, assigneeId, dueAt]
+      properties:
+        name:
+          type: string
+          minLength: 3
+          maxLength: 160
+        description:
+          type: string
+          minLength: 5
+          maxLength: 10000
+        expectedOutcome:
+          type: string
+          minLength: 1
+          maxLength: 5000
+        assigneeId:
+          $ref: "#/components/schemas/Uuid"
+        priority:
+          $ref: "#/components/schemas/TaskPriority"
+          default: medium
+        startAt:
+          type: string
+          format: date-time
+        dueAt:
+          type: string
+          format: date-time
+        reminderOffsets:
+          type: array
+          maxItems: 6
+          items:
+            type: integer
+            minimum: 0
+            maximum: 43200
+          default: [1440, 120, 0]
+        resourceLinks:
+          type: array
+          items:
+            type: string
+            format: uri
+        steps:
+          type: array
+          maxItems: 30
+          items:
+            $ref: "#/components/schemas/TaskStepRequest"
+
+    TaskPatchRequest:
+      type: object
+      description: At least one field is required. A reason is required when assigneeId or dueAt changes.
+      properties:
+        assigneeId:
+          $ref: "#/components/schemas/Uuid"
+        priority:
+          $ref: "#/components/schemas/TaskPriority"
+        dueAt:
+          type: string
+          format: date-time
+        reason:
+          type: string
+
+    ReasonRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
+    NoteRequest:
+      type: object
+      properties:
+        note:
+          type: string
+          maxLength: 5000
+    ReviewRequest:
+      type: object
+      required: [comment]
+      properties:
+        comment:
+          type: string
+          minLength: 1
+          maxLength: 5000
+    CommentRequest:
+      type: object
+      required: [body]
+      properties:
+        body:
+          type: string
+          minLength: 1
+          maxLength: 5000
+    ReassignRequest:
+      type: object
+      required: [assigneeId]
+      properties:
+        assigneeId:
+          $ref: "#/components/schemas/Uuid"
+
+    TaskReminderStatus:
+      type: object
+      required: [ok, due, delivered, at]
+      properties:
+        ok:
+          type: boolean
+          enum: [true]
+        due:
+          type: integer
+        delivered:
+          type: integer
+          description: Reminders delivered by this request.
+        at:
+          type: string
+          format: date-time
+
+    TaskReport:
+      type: object
+      required: [range, scope, metrics, trend, statusData, people, departments, tasks, delegatedSteps, delegationMetrics]
+      properties:
+        range:
+          type: object
+          required: [from, to, period, date]
+          properties:
+            from:
+              type: string
+              format: date-time
+            to:
+              type: string
+              format: date-time
+            period:
+              type: string
+              enum: [daily, weekly, monthly]
+            date:
+              type: string
+              format: date
+        scope:
+          type: string
+          enum: [mine, team, organization]
+        metrics:
+          type: object
+          required: [total, assigned, due, completed, completedOnTime, overdue, active, blocked, completionRate, onTimeRate, averageCompletionHours]
+          properties:
+            total:
+              type: integer
+              description: Tasks included in the report view.
+            assigned:
+              type: integer
+              description: Tasks created in the selected range.
+            due:
+              type: integer
+              description: Active or completed tasks due in the selected range.
+            completed:
+              type: integer
+              description: Tasks completed in the selected range.
+            completedOnTime:
+              type: integer
+            overdue:
+              type: integer
+            active:
+              type: integer
+            blocked:
+              type: integer
+            completionRate:
+              type: integer
+              description: Due tasks completed before the range ended, as a percentage.
+            onTimeRate:
+              type: integer
+            averageCompletionHours:
+              type: number
+        trend:
+          type: array
+          items:
+            type: object
+            required: [label, created, completed]
+            properties:
+              label:
+                type: string
+                description: Africa/Lagos date for the bucket.
+              created:
+                type: integer
+              completed:
+                type: integer
+        statusData:
+          type: array
+          items:
+            type: object
+            required: [status, count]
+            properties:
+              status:
+                $ref: "#/components/schemas/TaskStatus"
+              count:
+                type: integer
+        people:
+          type: array
+          items:
+            type: object
+            required: [id, name, department, total, assigned, completed, onTime, overdue, hours, onTimeRate, averageCompletionHours]
+            properties:
+              id:
+                $ref: "#/components/schemas/Uuid"
+              name:
+                type: string
+              department:
+                type: string
+              total:
+                type: integer
+              assigned:
+                type: integer
+              completed:
+                type: integer
+              onTime:
+                type: integer
+              overdue:
+                type: integer
+              hours:
+                type: number
+                description: Total completion hours for work completed in the range.
+              onTimeRate:
+                type: integer
+              averageCompletionHours:
+                type: number
+        departments:
+          type: array
+          items:
+            type: object
+            required: [slug, name, members, total, assigned, completed, onTime, overdue, onTimeRate]
+            properties:
+              slug:
+                $ref: "#/components/schemas/DepartmentSlug"
+              name:
+                type: string
+              members:
+                type: integer
+              total:
+                type: integer
+              assigned:
+                type: integer
+              completed:
+                type: integer
+              onTime:
+                type: integer
+              overdue:
+                type: integer
+              onTimeRate:
+                type: integer
+        tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/Task"
+        delegatedSteps:
+          type: array
+          items:
+            $ref: "#/components/schemas/TaskStep"
+        delegationMetrics:
+          type: object
+          required: [total, interdepartmental, active, blocked, overdue, completed, completionRate, onTimeRate, averageResponseHours, averageCompletionHours, averageHours]
+          properties:
+            total:
+              type: integer
+            interdepartmental:
+              type: integer
+            active:
+              type: integer
+            blocked:
+              type: integer
+            overdue:
+              type: integer
+            completed:
+              type: integer
+            completionRate:
+              type: integer
+            onTimeRate:
+              type: integer
+            averageResponseHours:
+              type: number
+            averageCompletionHours:
+              type: number
+            averageHours:
+              type: number
+              description: Backwards-compatible alias for averageCompletionHours.

@@ -28,11 +28,11 @@ A person has one home department. They may also watch other departments. Watchin
 
 | Role | Can |
 | --- | --- |
-| `member` | Raise a ticket, reply on tickets they raised, were assigned, or watch, read their home queue, and begin or complete tickets aimed at their home department |
-| `lead` | Everything a member can, plus assign, change any status, close, and manage watchers on tickets aimed at their home department |
-| `admin` | Everything a lead can, in every department, plus the monitor, create people, edit department receipt lists, and reach out to a department about unresolved tickets |
+| `member` | Raise a ticket, reply on tickets they raised, were assigned, or watch, read their home queue, begin or complete tickets aimed at their home department, and create tasks assigned only to themselves |
+| `lead` | Everything a member can, plus assign, change any status, close, and manage watchers on tickets aimed at their home department; assign tasks and steps, review their tasks and see team reports within it |
+| `admin` | Everything a lead can, in every department, plus the monitor, create people, edit department receipt lists, reach out to a department about unresolved tickets, assign any non-admin to a task, review or cancel any task, and run all reminders |
 
-Signing in uses a work email and a password. There is no public sign-up. An admin creates the account. The first version does not use Google or Microsoft sign-in. That can be added later without changing the ticket model.
+Signing in uses a work email and a password, or the **Sign in with vcglone** button. Both create the same Desk session. There is no public sign-up: an admin creates password accounts, and a first vcglone sign-in creates the account and syncs its role and department ([sso.md](sso.md)). Google and Microsoft sign-in are not offered.
 
 A person can be active or disabled. A disabled person cannot sign in. Their name stays on old tickets.
 
@@ -82,6 +82,44 @@ Members of the source department can read a ticket their department raised. They
 
 Unresolved means `open`, `in_progress`, or `waiting`. Resolved and closed tickets are not unresolved.
 
+## Tasks
+
+A task is one piece of assigned work. Unlike a ticket, it starts with an assignee rather than a request to a department.
+
+| Field | Rule |
+| --- | --- |
+| Id | Human id `TSK-` plus a number, starting at `TSK-1001`. The sequence never resets |
+| Name | Required, 3–160 characters |
+| Description | Required, 5–10000 characters |
+| Expected outcome | Optional, 1–5000 characters |
+| Assignee | The person doing the work. Members may assign only themselves, leads within their department, admins anyone who is not an admin |
+| Assigned by | The person who created the task |
+| Priority | `low`, `medium`, `high`, `urgent`. Default `medium` |
+| Status | `assigned`, `in_progress`, `blocked`, `in_review`, `changes_requested`, `completed`, `cancelled` |
+| Start at | Optional scheduled start |
+| Due at | Required, at least 15 minutes in the future |
+| Reminder offsets | Minutes before due: at most 6 values from 0 to 43200, default `[1440, 120, 0]` |
+| Evidence | Links and files attached to the task |
+| Steps | Optional delegated steps |
+
+A step has a title, assignee, due time and required flag, and may name a receiving department and head. Step statuses are `assigned`, `in_progress`, `blocked`, `completed`, `cancelled`. Step assignees must be active non-admins; when a receiving department is set, the assignee must belong to it. A lead or admin may reassign a step to someone who passes the same rule, and the step goes back to `assigned`.
+
+Status meaning:
+
+- **Assigned.** The task has an owner and has not started.
+- **In progress.** The assignee started it. `start` also works from `changes_requested` and keeps the original start time.
+- **Blocked.** The assignee recorded a reason. `resume` returns it to in progress.
+- **In review.** Submitted work waiting for a reviewer. A member who self-assigned completes directly; a lead or admin who self-assigned goes here.
+- **Changes requested.** A reviewer sent the work back with a comment; the assignee can start again and resubmit.
+- **Completed.** Resolved-like completion. Tasks do not reopen like tickets.
+- **Cancelled.** A reviewer stopped the task, stored the reason as the review comment, and cancelled open steps.
+
+Reviewers are admins, the lead who assigned the task, and the head of the assignee’s department. They approve, request changes, cancel, and change the assignee, priority or due time. Only the assignee starts, blocks, resumes and submits, and submission requires every required step to be completed.
+
+Evidence is links plus PNG, JPEG, WEBP or PDF files up to 5 MB each, 10 files at most, served from a private download route. The task detail also holds comments and an activity timeline. Files are stored by key, not as bytes in Postgres.
+
+Task reports filter by scope (mine, team, organization), period (daily, weekly, monthly), date, person and department, with Africa/Lagos day and week (Monday) and calendar-month boundaries. They count assigned, due, completed, on-time, overdue, active and blocked work, completion and on-time rates, and average completion hours, plus interdepartmental handoff counts, response hours and completion hours. CSV, PDF and handoffs CSV exports use the same filters. Reminders are delivered idempotently for scheduled starts, due offsets, overdue days and managers who delegated: signed-in people get theirs from `GET /notifications/status`, and an admin triggers all of them with `POST /tasks/reminders/run` for cron or manual use.
+
 ## Screens
 
 The design system defines how they look. This is what they contain. Every section shows a count badge. The number is the work still sitting in that section, not a decoration.
@@ -91,6 +129,12 @@ The design system defines how they look. This is what they contain. Every sectio
 **Queue.** The work aimed at your home department. Leads live here. Members can read it. A department you only watch does not appear as a queue. It appears in Alerts. Badge: unresolved tickets in the queue.
 
 **Ticket.** Title, meta line, status, priority, assignee, a stage-by-stage progress timeline, the thread, the reply field, and the receipt list for this ticket. The timeline shows who raised, claimed, started, completed, reopened or closed it, with times. Attachments sit under the note they belong to.
+
+**Tasks.** Assigned work, newest activity first. Scope (assigned to me, my department, everyone for admins), status and priority filters sit alongside a department filter for leads and admins, and search by name, number or person. The badge counts active tasks needing you. **New task** opens a composer with the task fields, reminder offsets, links and, for leads and admins, delegated steps. Tasks is in the sidebar on desktop and in the bottom bar on a phone.
+
+**Task detail.** The task fields and stage times, action buttons for the assignee and reviewers, delegated steps with their own actions, evidence links and files, comments, and the activity timeline.
+
+**Task reports.** Filters for scope, period, date, person and department. Cards show assigned, due, completed, on-time, overdue, active, completion rate and average hours; tables cover status, the created/completed trend, people, departments, task details and interdepartmental handoffs. CSV, PDF and handoffs CSV export the same view. Admins also see due/delivered reminder counts and **Run delivery**. The reports page calls the reminder status route when it loads.
 
 **Alerts.** Notifications for this person, newest first. Each row opens the ticket, or the queue when the row is an admin outreach. Marking the screen as read clears the Alerts badge. It does not delete the rows. Badge: unread notifications.
 
@@ -108,7 +152,7 @@ The design system defines how they look. This is what they contain. Every sectio
 
 Opening a section shows the tickets, newest activity first, then the same thread used everywhere else. An admin can assign, reply, and change status from that thread, under the same rules as a lead.
 
-There are no charts and no cross-department analytics beyond these counts.
+The ticket monitor stays a list. Task reports are where the charts and cross-department task analytics live.
 
 ## Reaching a department
 
@@ -135,10 +179,14 @@ An event creates one notification per recipient. Recipients are the requester, t
 | Assigned | `status` | “{Name} assigned {id} to {Assignee}.” |
 | Status changed | `status` | “{Name} marked {id} {status}.” |
 | Admin outreach | `status` | “{Admin} asked {Department} about {n} unresolved tickets.” |
+| Task created or updated | `status` | “{Name} created {taskId}.” / “{Name} updated {taskId}.” |
+| Task started, blocked, resumed, submitted or cancelled | `status` | “{Name} started/blocked/resumed/submitted/cancelled {taskId}.” |
+| Review, comment or step action | `status` | “{Name} approved {taskId}.” / “{Name} commented on {taskId}.” / “{Name} completed a delegated step.” |
+| Task reminder | `status` | “{Name} is due in 120 minutes.” / “{Name} is overdue.” |
 
-The person who caused the event does not get a notification or a sound for it. They still see the thread update in place. An outreach notifies the department’s queue recipients, not the admin who sent it.
+The person who caused the event does not get a notification or a sound for it. They still see the thread update in place. An outreach notifies the department’s queue recipients, not the admin who sent it. Task alerts use `status`, carry a null `ticketId`, and store the `taskId` on the notification so the alert opens the task; their socket frame also puts the `taskId` in `ticketEvent`.
 
-Section badges come from `GET /badges` and from the `badges.updated` socket frame. Opening a ticket from an alert marks that notification read. “Mark all read” clears the Alerts badge. The Inbox, Queue, and Monitor badges follow the ticket counts, not the read state.
+Section badges come from `GET /badges` and from the `badges.updated` socket frame. Opening a ticket from an alert marks that notification read. “Mark all read” clears the Alerts badge. The Inbox, Queue, and Monitor badges follow the ticket counts, not the read state. The Tasks badge counts active tasks assigned to you, plus tasks you delegated that are in review.
 
 Live delivery is the WebSocket in [realtime.md](realtime.md). The Alerts screen also loads from the API, so a missed socket event is recovered on the next visit.
 
@@ -162,6 +210,6 @@ A note may include files. Allowed types: PNG, JPEG, WEBP, PDF. Maximum 10 MB eac
 - Sign in with Google or Microsoft
 - Dark mode
 - Public or customer-facing tickets
-- Custom departments, custom fields, SLAs, and due dates
+- Custom departments, custom fields, and SLAs. Tasks have due dates and reminders; tickets do not
 - Editing or deleting a note after it is sent
 - Merging tickets

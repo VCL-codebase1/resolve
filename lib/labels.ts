@@ -60,3 +60,72 @@ export function isRole(value: string): value is Role {
 export function unresolved(status: Status) {
   return status === "open" || status === "in_progress" || status === "waiting";
 }
+
+export const TASK_STATUSES = [
+  "assigned",
+  "in_progress",
+  "blocked",
+  "in_review",
+  "changes_requested",
+  "completed",
+  "cancelled",
+] as const;
+export type TaskStatus = (typeof TASK_STATUSES)[number];
+
+export const TASK_STEP_STATUSES = ["assigned", "in_progress", "blocked", "completed", "cancelled"] as const;
+export type TaskStepStatus = (typeof TASK_STEP_STATUSES)[number];
+
+export const TASK_PRIORITIES = ["low", "medium", "high", "urgent"] as const;
+export type TaskPriority = (typeof TASK_PRIORITIES)[number];
+
+export const TASK_RESOURCE_TYPES = ["link", "file"] as const;
+export type TaskResourceType = (typeof TASK_RESOURCE_TYPES)[number];
+
+export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
+  assigned: "Assigned",
+  in_progress: "In progress",
+  blocked: "Blocked",
+  in_review: "In review",
+  changes_requested: "Changes requested",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
+
+export const TASK_STEP_STATUS_LABEL: Record<TaskStepStatus, string> = {
+  assigned: "Assigned",
+  in_progress: "In progress",
+  blocked: "Blocked",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
+
+export const TASK_PRIORITY_LABEL: Record<TaskPriority, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  urgent: "Urgent",
+};
+
+export function isTaskStatus(value: string): value is TaskStatus {
+  return (TASK_STATUSES as readonly string[]).includes(value);
+}
+
+export function isTaskStepStatus(value: string): value is TaskStepStatus {
+  return (TASK_STEP_STATUSES as readonly string[]).includes(value);
+}
+
+export function isTaskPriority(value: string): value is TaskPriority {
+  return (TASK_PRIORITIES as readonly string[]).includes(value);
+}
+
+export function isTaskResourceType(value: string): value is TaskResourceType {
+  return (TASK_RESOURCE_TYPES as readonly string[]).includes(value);
+}
+
+export function taskClosed(status: TaskStatus) {
+  return status === "completed" || status === "cancelled";
+}
+
+export function taskActive(status: TaskStatus) {
+  return !taskClosed(status);
+}

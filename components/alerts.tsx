@@ -105,7 +105,7 @@ export function Alerts() {
       <ul className={loading && items ? "opacity-60" : ""} aria-busy={loading}>
         {items?.map((item) => (
           <li key={item.id} className="border-b border-line">
-            <Link href={item.ticketId ? `/tickets/${item.ticketId}` : "/queue"} onClick={() => void open(item)} className="block px-4 py-4 min-[880px]:px-8">
+            <Link href={item.taskId ? `/tasks/${item.taskId}` : item.ticketId ? `/tickets/${item.ticketId}` : "/queue"} onClick={() => void open(item)} className="block px-4 py-4 min-[880px]:px-8">
               <p className={`break-words text-[15px] min-[480px]:text-[16px] ${item.read ? "" : "font-semibold"}`}>{item.sentence}</p>
               <p className="mt-1 text-[13px] text-muted">{relativeTime(item.createdAt)}</p>
             </Link>

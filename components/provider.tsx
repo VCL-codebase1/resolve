@@ -136,7 +136,7 @@ export function DeskProvider({ children }: { children: React.ReactNode }) {
           sound(body.sound);
           return;
         }
-        if (body.type?.startsWith("ticket.")) setLive((value) => value + 1);
+        if (body.type?.startsWith("ticket.") || body.type?.startsWith("task.")) setLive((value) => value + 1);
       };
       socket.onclose = () => {
         if (ping) window.clearInterval(ping);

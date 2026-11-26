@@ -104,6 +104,32 @@ Use Tunde (Sales) and Chioma (Exhibition lead).
 | 40 | Mute | Sound off, then trigger an alert | Toast may show; no tone |
 | 41 | Mobile chrome | Narrow viewport (~375px) | Full-bleed header; logo fits; bottom tabs; stacked CTAs; forms full width; no horizontal scroll |
 
+### Tasks
+
+Use Tunde (Sales member), Chioma (Exhibition lead), Bola (Exhibition member) and the admin. Give every task a due time well ahead of the test window.
+
+| # | Flow | Steps | Expected |
+| --- | --- | --- | --- |
+| 42 | Tasks list | Open `/tasks` | Newest activity first; scope, status, priority, department and search controls; badge shows tasks needing you |
+| 43 | Create and filter | New task → name, description, assignee Tunde, due, priority High → create; filter by status, priority, name and id, then `overdue` on a past-due test task | `TSK-1001` onwards; filters narrow the list; members see no delegated-step fields |
+| 44 | Assignee rules | Tunde tries a task assigned to Bola; Chioma assigns outside Exhibition; admin assigns an admin | All refused: members self-assign only, leads stay in their department, admins cannot assign admins |
+| 45 | Start and idempotency | Tunde starts his task twice | In progress, one Start entry in the activity timeline, original `startedAt` unchanged |
+| 46 | Block / resume | Tunde blocks with a reason, then resumes | Blocked shows the reason; Resume returns to In progress and clears the reason |
+| 47 | Required steps | Chioma creates a task with a required step for Bola; the assignee submits before the step is done, then after Bola completes it | First submit refused; second succeeds |
+| 48 | Self-assigned completion | Member self-assigned task, all required steps done → Submit | Status Completed directly, no review |
+| 49 | Lead self-assignment review | Chioma assigns a task to herself → Submit | Status In review, not Completed |
+| 50 | Approve | Reviewer approves the in-review task, with a comment | Completed; comment stored; activity shows the approval |
+| 51 | Request changes | Reviewer requests changes with a comment | Changes requested; assignee can start again and resubmit to In review |
+| 52 | Reviewer and cancel rules | Bola tries approve, request-changes and cancel; admin cancels an in-review task with a reason | Bola refused; admin cancels, reason appears as the review comment, and open steps become Cancelled |
+| 53 | Steps and departments | Chioma adds a step to Sales with a Sales assignee and head; try an assignee from another department; reassign as assigning head, receiving head and admin | Wrong department refused; each allowed reassign resets the step to Assigned; Bola cannot reassign |
+| 54 | Evidence | Add a link and a small PNG on task detail; open the file; try a 6 MB file and an 11th file | Link and file listed; file opens only for people who can read the task; 413 over size, 422 over the count |
+| 55 | Comments and activity | Add a comment, then reload the task | Comment in order; activity shows create, start, step actions, evidence and comment with actors and times |
+| 56 | Reminders status | Open `/tasks/reports` as a member with a task already due | Counts load; delivered reminders arrive as `task.reminder` alerts |
+| 57 | Admin reminders run | Admin clicks **Run delivery** on Task reports, then repeats | Count rises on the first run and does not duplicate on the second |
+| 58 | Reports | Pick scope, period, date, person and department; download CSV, PDF and Handoffs CSV | Cards and tables match the filters; PDF opens; CSV carries ids and on-time flags; handoffs CSV carries source and receiving departments |
+| 59 | Report boundaries | Run a monthly report for a date near midnight UTC | Ranges start at 00:00+01:00, weeks on Monday, months on the calendar month |
+| 60 | Realtime tasks | Two sessions, one acting on a task | `task.*` frames refresh the other session’s task list or detail; actor gets no alert for their own action; Tasks badge moves |
+
 ## Automated smoke (API)
 
 With the production server on port 3000 and seed data present:
@@ -121,6 +147,40 @@ curl -s -b /tmp/desk.txt -H 'content-type: application/json' \
 
 Assign and status use `PATCH /api/v1/tickets/{id}`. Receivers can also `POST /api/v1/tickets/{id}/begin` and `POST /api/v1/tickets/{id}/complete` with no body. Create person is `POST /api/v1/people`. Reset password is `PATCH /api/v1/people/{id}` with `password`. New department is `POST /api/v1/departments`.
 
+Tasks use the ids returned by create. Get a real assignee id from `GET /api/v1/people` and use a due time more than 15 minutes away:
+
+```bash
+# task create, list and reminder status with the staff cookie
+DUE=$(date -u -v+2d '+%Y-%m-%dT%H:%M:%SZ')
+curl -s -b /tmp/desk.txt -H 'content-type: application/json' \
+  -d "{\"name\":\"Smoke task\",\"description\":\"Check the task flow\",\"assigneeId\":\"<user-uuid>\",\"dueAt\":\"$DUE\",\"priority\":\"high\"}" \
+  http://127.0.0.1:3000/api/v1/tasks
+
+curl -s -b /tmp/desk.txt 'http://127.0.0.1:3000/api/v1/tasks?scope=mine&status=assigned&q=Smoke'
+curl -s -b /tmp/desk.txt http://127.0.0.1:3000/api/v1/notifications/status
+
+# replace TSK-1001 with the id returned by create
+curl -s -b /tmp/desk.txt -H 'content-type: application/json' -d '{}' \
+  -X POST http://127.0.0.1:3000/api/v1/tasks/TSK-1001/start
+curl -s -b /tmp/desk.txt -H 'content-type: application/json' \
+  -d '{"reason":"Waiting on a supplier"}' \
+  -X POST http://127.0.0.1:3000/api/v1/tasks/TSK-1001/block
+curl -s -b /tmp/desk.txt -H 'content-type: application/json' -d '{}' \
+  -X POST http://127.0.0.1:3000/api/v1/tasks/TSK-1001/resume
+
+# admin: report JSON, exports and the reminder trigger
+curl -s -c /tmp/admin.txt -H 'content-type: application/json' \
+  -d '{"email":"admin@vethancon.com","password":"<configured-test-password>"}' \
+  http://127.0.0.1:3000/api/v1/auth/login
+
+curl -s -b /tmp/admin.txt 'http://127.0.0.1:3000/api/v1/reports/tasks/data?scope=organization&period=weekly'
+curl -s -b /tmp/admin.txt -o task-report.csv 'http://127.0.0.1:3000/api/v1/reports/tasks?scope=organization'
+curl -s -b /tmp/admin.txt -o task-report.pdf 'http://127.0.0.1:3000/api/v1/reports/tasks/pdf?scope=organization'
+curl -s -b /tmp/admin.txt -o handoffs.csv 'http://127.0.0.1:3000/api/v1/reports/task-steps?scope=organization'
+curl -s -b /tmp/admin.txt -H 'content-type: application/json' -d '{}' \
+  -X POST http://127.0.0.1:3000/api/v1/tasks/reminders/run
+```
+
 ## Last verified run
 
 Date: 24 Nov 2026.
@@ -129,9 +189,12 @@ Date: 24 Nov 2026.
 - Runtime: production `server.ts` on `http://localhost:3000` with embedded PGlite (Supabase URI was not reachable: `db.*.supabase.co` → `ENOTFOUND`; pooler → tenant/user not found until the Session URI from the dashboard is pasted).
 - API flows passed: landing, admin/login pages, staff login, raise, raise receipt `sent` (SMTP unset), local PNG attach and download, admin login, monitor, directory, assign (`PATCH`), reply + receipt, waiting → resolved → closed, create department, create user, reset password + make head, login after reset, outreach, alerts, badges, inbox, queue, logout, inbound `501`.
 - UI door checks for admin vs staff are enforced in the login forms, not in `/api/v1/auth/login`.
+- The task flows and task API smoke commands above were added with the vcglone task port and have not been part of a verified run.
 
 ## Known traps
 
 - `SUPABASE_DB_URL` missing `=` or an unquoted `#` in the password truncates the value.
 - Fake `SMTP_HOST` or bad Cloudinary keys make receipts `failed` or uploads return “fetch failed”; unset them for local disk + log mail.
 - `npm start` loads `.env`. Override with empty `SMTP_HOST=` / `CLOUDINARY_CLOUD_NAME=` when you want the log and disk fallbacks.
+- Reminders only deliver when someone calls `GET /api/v1/notifications/status` (task reports do on load) or an admin calls `POST /api/v1/tasks/reminders/run`; there is no long-lived scheduler. Idempotency is `(task_id, user_id, kind, scheduled_for)`, so a changed `dueAt` creates a new due key and overdue keys carry the Lagos day.
+- Task reports use Africa/Lagos boundaries: days start at 00:00+01:00, weeks on Monday, months on the calendar month. Check `range` in the report JSON before judging totals when the test date is near midnight UTC.

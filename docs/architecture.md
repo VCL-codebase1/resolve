@@ -12,7 +12,9 @@ flowchart TB
   phone --> ws[WebSocket /ws]
   next --> api[Route handlers /api/v1]
   api --> db[(Postgres)]
+  api --> files[Disk / S3 by storage key]
   api --> mail[Nodemailer SMTP]
+  api --> pdf[pdfkit PDF]
   api --> ws
   mail --> smtp[Company mailbox]
   hook[POST /webhooks/email] -.-> db
@@ -43,14 +45,26 @@ Postgres. Tables, named for the product words:
 - `outreaches` — an admin’s note to a department, the unresolved count, and the ticket ids at that moment
 - `receipts` — one row per outbound email, with addresses and state. A ticket receipt has a ticket id. An outreach receipt has an outreach id
 - `sessions` — server-side session, httpOnly cookie on the client
+- `tasks` — assigned work with a `TSK-` human id, fields, status and stage times
+- `task_steps` — delegated steps, receiving department and head, step status and stage times
+- `task_resources` — links and file evidence; files carry a `storage_key`
+- `task_comments` — discussion on the task
+- `task_activities` — the activity timeline on the task
+- `task_reminder_deliveries` — one row per reminder, unique on `(task_id, user_id, kind, scheduled_for)`
 
-Section badges are counted from tickets and unread notifications. They are not a separate table.
+Section badges are counted from tickets, task state and unread notifications. They are not a separate table. The Tasks badge covers active tasks assigned to the person, plus tasks they delegated that are in review.
 
-Ids inside the database are UUIDs. The human ticket id is a separate unique column, allocated from a Postgres sequence starting at 1001, formatted `VC-{n}`.
+Ids inside the database are UUIDs. The human ticket id is a separate unique column, allocated from a Postgres sequence starting at 1001, formatted `VC-{n}`. Task ids come from the `task_no` sequence, also starting at 1001, formatted `TSK-{n}`; the sequence never resets. The task tables are in `schema.sql` for a fresh install and in `migrations/005_tasks.sql`, registered as version 5, for existing databases.
 
 Passwords are hashed with Argon2id. The hash never appears in an API response.
 
-Attachments go to disk on the VPS under a path outside the repo, or to an S3-compatible bucket if one is already in use. The database stores the key, the name, the media type, and the size. Bytes are not stored in Postgres.
+Attachments go to disk on the VPS under a path outside the repo, or to an S3-compatible bucket if one is already in use. The database stores the key, the name, the media type, and the size. Bytes are not stored in Postgres. Task evidence files use the same store and are served from a private task download route; links are stored as URLs.
+
+## Tasks
+
+Task routes run in the same catch-all handler as tickets (`app/api/v1/[[...path]]/route.ts`, with the logic in `lib/handle.ts`). `/tasks` and `/task-steps/{id}` cover creation, list filters, the status transitions, steps, evidence and comments. One report builder feeds `GET /reports/tasks/data` and the CSV, PDF and handoffs CSV exports. PDFs are rendered in-process with `pdfkit` on A4 pages; CSV is written in the handler as an attachment. Report ranges use Africa/Lagos boundaries: 00:00+01:00 days, Monday-start weeks and calendar months.
+
+There is no long-lived reminder scheduler. `GET /notifications/status` delivers reminders already due for the signed-in person, and `POST /tasks/reminders/run` is the admin-only trigger for cron or a manual click. A delivery and its `task_reminder_deliveries` row are written in one transaction; the unique key on `(task_id, user_id, kind, scheduled_for)` makes repeats harmless.
 
 ## Auth
 
@@ -72,7 +86,7 @@ The receipt row is inserted as `queued` before the send. A successful SMTP accep
 
 ## Realtime
 
-After a successful write, the API publishes one event to the sockets of every recipient. The event names and payloads are in [realtime.md](realtime.md). The publisher is in-process. Do not add Redis until more than one Node process is serving the desk. If that happens, the publish step moves behind a small interface. The event shape does not change.
+After a successful write, the API publishes one event to the sockets of every recipient. The event names and payloads are in [realtime.md](realtime.md). Task writes publish `task.*` frames with `ticketEvent: { type: "task.<action>", taskId, action }` and sound `status`; the client provider refreshes task views on those frames. The publisher is in-process. Do not add Redis until more than one Node process is serving the desk. If that happens, the publish step moves behind a small interface. The event shape does not change.
 
 ## Layout
 
@@ -91,6 +105,7 @@ Tailwind theme tokens map one-to-one onto the tokens in the design system. No se
 ## What this record refuses
 
 - A separate frontend repo and a separate API repo
+- A separate task service, or a long-lived reminder scheduler in the app process
 - A public signup
 - Storing mail credentials or session tokens in the repository
 - Turning on inbound email parsing before the mailbox and the token format in [email.md](email.md) are accepted

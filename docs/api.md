@@ -2,7 +2,7 @@
 
 Human guide to the routes in [openapi.yaml](openapi.yaml). If a field disagrees with the YAML, the YAML wins and this page should be corrected.
 
-Base path: `/api/v1`. The browser sends the `desk_session` cookie. Bodies are JSON unless a route says otherwise. Times are ISO-8601 in UTC. Ticket paths use the human id, `VC-1042`. User ids are UUIDs.
+Base path: `/api/v1`. The browser sends the `desk_session` cookie. Bodies are JSON unless a route says otherwise. Times are ISO-8601 in UTC. Ticket paths use the human id, `VC-1042`, and task paths use `TSK-1001`. User ids are UUIDs.
 
 Errors share one shape:
 
@@ -27,6 +27,10 @@ Errors share one shape:
 | `departmentSlug` | Home department |
 | `watches` | Extra department slugs this person follows |
 | `active` | Always `true` here. A disabled person cannot sign in |
+
+## Auth SSO
+
+`GET /auth/sso/start?door=staff|admin` starts sign-in with an existing vcglone account. Desk redirects to vcglone, checks the short-lived signed assertion, creates or syncs the Desk account, and sets the same `desk_session` cookie as password login. vcglone roles and departments map to Desk roles and queues; setup and the mapping are in [sso.md](sso.md). Password login stays enabled, and the door is still enforced: `/admin` requires an admin.
 
 ## Departments
 
@@ -105,15 +109,104 @@ The server sets the requester and copies their home department onto the ticket a
 
 `GET /attachments/{id}` streams the bytes. Same read rule as the ticket. Images are `Content-Disposition: inline`. PDFs are `attachment`.
 
+## Tasks
+
+Tasks are assigned work with a human id `TSK-1001`, `TSK-1002`, and so on, from a Postgres sequence that never resets. Task paths use that id. The detail adds steps, evidence, comments and activity to the task fields below.
+
+### List
+
+`GET /tasks`
+
+| Query | Meaning |
+| --- | --- |
+| `scope` | `mine` (default), `team`, or `organization` |
+| `status` | `assigned`, `in_progress`, `blocked`, `in_review`, `changes_requested`, `completed`, `cancelled`, or `overdue` |
+| `priority` | `low`, `medium`, `high`, `urgent` |
+| `department` | The assignee’s home department or a step’s receiving department |
+| `q` | Task name, description or id; step title or assignee name; task assignee name |
+| `cursor` | From the previous page |
+| `limit` | Default 30, max 100 |
+
+`mine` is work assigned to you, assigned by you, or handed to you as a step assignee. `team` is work in your home department, delegated by you, or handed to you as a receiving head; only a lead or admin may use it. `organization` is every task; only an admin may use it. A non-admin may pass `department` only for their home department. `overdue` means an active task past its due time.
+
+The page is `{ items, nextCursor }`, newest activity first. An item has id, name, assignee, assignedBy, priority, status, `startAt`, `dueAt`, `reminderOffsets`, the stage timestamps, `createdAt`, `updatedAt`, and an `overdue` flag. It does not include steps or the thread.
+
+### Create
+
+`POST /tasks` takes `name` (3–160), `description` (5–10000), `assigneeId` and `dueAt`, plus optional `expectedOutcome` (1–5000), `startAt`, `priority` (`low`, `medium`, `high`, `urgent`; default `medium`), `reminderOffsets`, `resourceLinks` and `steps`. `dueAt` must be at least 15 minutes from now. `reminderOffsets` are minutes before due: at most 6 values from 0 to 43200, default `[1440, 120, 0]`. Links must be complete http or https addresses.
+
+The assignee must be active and not an admin. Members may assign only themselves and cannot add steps. Leads may assign inside their department. Admins may assign anyone who is not an admin. A step needs a title, assignee and due time no later than the task’s; its assignee must be active and not an admin, and when a receiving department is set the assignee must belong to it and an optional receiving head must be an active lead there. At most 30 steps. Returns 201 with the task detail.
+
+### Read and update
+
+`GET /tasks/{id}` returns the task plus `steps`, `resources`, `comments` and `activities`. Readable by an admin, the assignee, the assigner, step assignees and receiving heads, and leads of a step assignee’s or the task assignee’s department. Otherwise 404.
+
+`PATCH /tasks/{id}` is reviewer-only and takes `assigneeId`, `priority`, or `dueAt`; at least one is required. Changing the assignee or due time also needs a `reason`. A closed task returns 409.
+
+### Actions
+
+Every action is `POST /tasks/{id}/{action}` and returns the task detail.
+
+| Action | Who | Rule |
+| --- | --- | --- |
+| `start` | Assignee | From `assigned` or `changes_requested`. Idempotent on `in_progress`, and the original `startedAt` is preserved when work restarts |
+| `block` | Assignee | From `assigned`, `in_progress` or `changes_requested`. Body `reason` (1–1000) required |
+| `resume` | Assignee | From `blocked`, back to `in_progress` |
+| `submit` | Assignee | From `in_progress` or `changes_requested`. Every required step must be completed. Optional `note`. A member’s self-assigned task goes to `completed`; a lead’s or admin’s self-assignment goes to `in_review` |
+| `approve` | Reviewer | From `in_review` to `completed`. Optional `comment` |
+| `request-changes` | Reviewer | From `in_review` to `changes_requested`. `comment` (1–5000) required |
+| `cancel` | Reviewer | Any non-closed task. `reason` (1–1000) required; stored as `reviewComment`, and open steps are cancelled |
+| `comments` | Anyone who can read the task | Body `body` (1–5000). Returns 201 |
+
+A reviewer is an admin, the lead who assigned the task, or the head of the assignee’s department. `completed` is resolved-like completion: tasks do not reopen the way a ticket does.
+
+### Steps and evidence
+
+`POST /tasks/{id}/steps` adds steps (lead or admin only, not on a closed task). `POST /task-steps/{id}/start`, `/block`, `/resume` and `/complete` are for the step assignee: start from `assigned` (idempotent on `in_progress`), block from `assigned` or `in_progress` with a `reason`, resume from `blocked`, complete from `in_progress` with an optional `note`. `POST /task-steps/{id}/reassign` is for the assigning head, the receiving head or an admin. The replacement must be active, not an admin, and in the receiving department when one is set; reassignment resets the step to `assigned` and clears its start, block and completion times. Step routes return the parent task detail.
+
+`POST /tasks/{id}/resources` is `multipart/form-data` with `links` and repeated `files`. Files are PNG, JPEG, WEBP or PDF, sniffed from the bytes, up to 5 MB each and at most 10 per request. 413 over size, 415 for a bad type, 422 over the file count or for a bad link. A closed task refuses resources. `GET /tasks/{id}/resources/{resourceId}` streams a file only to someone who can read the task; files are stored by `storage_key`, not as bytes in Postgres.
+
+## Task reports
+
+`GET /reports/tasks/data` returns the report JSON. The CSV, PDF and handoffs routes below take the same query params.
+
+| Query | Meaning |
+| --- | --- |
+| `scope` | `mine` (default), `team`, or `organization` (admin only) |
+| `period` | `daily` (default), `weekly`, or `monthly` |
+| `date` | `YYYY-MM-DD`, default today. Boundaries use Africa/Lagos: a day starts at 00:00+01:00, a week starts Monday, a month is the calendar month |
+| `employeeId` | Filter to one assignee; ignored for members |
+| `departmentId` | Filter to the assignee’s department; ignored for members |
+
+A task is in the view when it was created, came due, or was completed in the range, or is still open. The JSON carries `range`, `scope`, `metrics`, `trend`, `statusData`, `people`, `departments`, `tasks`, `delegatedSteps` and `delegationMetrics`. `metrics` has `total`, `assigned` (created in range), `due`, `completed`, `completedOnTime`, `overdue`, `active`, `blocked`, `completionRate` (completed due work / due work), `onTimeRate` and `averageCompletionHours`. `delegationMetrics` has `total`, `interdepartmental`, `active`, `blocked`, `overdue`, `completed`, `completionRate`, `onTimeRate`, `averageResponseHours`, `averageCompletionHours` (also exposed as `averageHours`) and the counts behind the handoff table.
+
+The step half uses step-level scope: `mine` is the step assignee, `team` is the step assigner, receiving head or assignee department, and `organization` is admin. Its `departmentId` matches the step’s receiving department.
+
+| Export | Route |
+| --- | --- |
+| Task CSV | `GET /reports/tasks` |
+| Task PDF | `GET /reports/tasks/pdf` |
+| Handoffs CSV | `GET /reports/task-steps` |
+
+All three return an attachment named for the period and date.
+
 ## Notifications
 
 `GET /notifications` returns the caller’s rows, newest first. `unread=true` filters. Page shape matches tickets: `{ items, nextCursor }`.
 
-Each item: `id`, `type` (`ticket.raised`, `ticket.replied`, `ticket.assigned`, `ticket.status_changed`, `department.outreach`), `ticketId` (null for an outreach), `departmentSlug` (set for an outreach), `sentence`, `sound` (`raise`, `reply`, or `status`), `read`, `createdAt`, `actor`.
+Each item: `id`, `type` (`ticket.raised`, `ticket.replied`, `ticket.assigned`, `ticket.status_changed`, `department.outreach`, or a `task.*` type such as `task.created`, `task.started`, `task.submitted`, `task.completed`, `task.step_completed` or `task.reminder`), `ticketId` (null for an outreach or a task alert), `taskId` (set for a task alert), `departmentSlug` (set for an outreach), `sentence`, `sound` (`raise`, `reply`, or `status`; task alerts use `status`), `read`, `createdAt`, `actor`. Task socket frames also carry `ticketEvent` with `type`, `taskId` and `action`. See [realtime.md](realtime.md).
 
 `POST /notifications/read` with `{ "ids": ["..."] }` marks those rows. An empty body, or `"ids": []`, marks all of the caller’s unread rows. 204. Ids that are not theirs are ignored.
 
 Live copies of these rows arrive on the socket. See [realtime.md](realtime.md).
+
+## Task reminders
+
+`GET /notifications/status` delivers any reminders already due for the signed-in person and returns `{ ok, due, delivered, at }`. `due` counts active tasks assigned to or delegated by that person that are past due; `delivered` is the number of new reminders this call sent.
+
+`POST /tasks/reminders/run` is admin only. It delivers every due reminder and returns `{ ok, delivered, at }`. No long-lived scheduler runs in the app: use this route from cron or a manual trigger, especially on a serverless host. The task reports screen calls the status route when it loads.
+
+Reminders cover a scheduled `startAt` (`START`), the latest eligible due offset (`DUE` or `DUE_<minutes>`), an overdue notice keyed by Africa/Lagos day, and a manager overdue notice for leads and admins who delegated work. `task_reminder_deliveries` is unique on `(task_id, user_id, kind, scheduled_for)`; the notification and its idempotency row are written in one transaction, so repeated calls do not double-send.
 
 ## Badges
 
@@ -124,6 +217,7 @@ Live copies of these rows arrive on the socket. See [realtime.md](realtime.md).
 | `inbox` | Unresolved tickets in `scope=mine` |
 | `queue` | Unresolved tickets aimed at the caller’s home department |
 | `alerts` | Unread notifications |
+| `tasks` | Active tasks assigned to the caller, plus tasks they delegated that are in review |
 | `monitor` | Present only for admins. `{ raised, pending, resolved, closed }` |
 
 Unresolved is `open`, `in_progress`, or `waiting`. A zero value is returned as `0`. The client hides the badge. The same object arrives on the socket as `badges.updated`.

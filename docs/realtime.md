@@ -1,6 +1,6 @@
 # Realtime
 
-Live updates for an open Desk session. The event names match the notification types in [api.md](api.md). Sound keys match [design-system.md](design-system.md).
+Live updates for an open Desk session. The event names match the notification types in [api.md](api.md), including `task.*`. Sound keys match [design-system.md](design-system.md).
 
 ## Socket
 
@@ -20,7 +20,7 @@ Reconnect with backoff: 1s, 2s, 4s, then 8s, and stay at 8s. On `ready` after a 
 
 ## Events
 
-Every event is one JSON object with `type`, `ticketId`, `actor`, `at`, and the fields below. `actor` is a person object: `id`, `name`, `role`, `departmentSlug`, `active`.
+Every event is one JSON object with `type`, `ticketId`, `actor`, `at`, and the fields below. `actor` is a person object: `id`, `name`, `role`, `departmentSlug`, `active`. `ticketId` may be null: it is null on `department.outreach` and on every `task.*` frame. Task frames carry the work id in `ticketEvent`: `{ type: "task.<action>", taskId, action }`. Task alerts use sound `status`.
 
 | `type` | Extra fields | What the client does |
 | --- | --- | --- |
@@ -29,13 +29,16 @@ Every event is one JSON object with `type`, `ticketId`, `actor`, `at`, and the f
 | `ticket.assigned` | `assignee` (person or null), `status` | If this ticket is open, update the assignee and status |
 | `ticket.status_changed` | `status`, `priority` | If this ticket is open, update both |
 | `notification.created` | `notificationId`, `sound`, `sentence`, `notificationType` | Prepend the alert, show the glass note, play `sound` |
+| `task.created`, `task.updated`, `task.commented`, `task.resource_added` | `ticketEvent` | Refresh the task list or detail if open. No sound from this frame |
+| `task.started`, `task.blocked`, `task.resumed`, `task.submitted`, `task.approved`, `task.changes_requested`, `task.completed`, `task.cancelled`, `task.reminder` | `ticketEvent` | Refresh the open task view. Sound comes only from `notification.created` |
+| `task.step_added`, `task.step_started`, `task.step_blocked`, `task.step_resumed`, `task.step_completed`, `task.step_reassigned` | `ticketEvent` | Refresh steps on the open task detail |
 | `badges.updated` | `badges` | Replace the section badges. No sound, no glass note |
 
-`notificationType` repeats the underlying event: `ticket.raised`, `ticket.replied`, `ticket.assigned`, `ticket.status_changed`, or `department.outreach`.
+`notificationType` repeats the underlying event: `ticket.raised`, `ticket.replied`, `ticket.assigned`, `ticket.status_changed`, `department.outreach`, or one of the `task.*` types above. The client provider refreshes task views on any `task.*` frame, as it does for `ticket.*` frames.
 
-`badges` is the same object as `GET /badges`. `ticketId` may be absent on `badges.updated`. On `department.outreach`, `ticketId` is null and `departmentSlug` is set. Opening that alert goes to the department queue, not to a ticket.
+`badges` is the same object as `GET /badges`, now including `tasks`. `ticketId` may be absent on `badges.updated`. On `department.outreach`, `ticketId` is null and `departmentSlug` is set. On `task.*` frames, `ticketId` is also null and the `ticketEvent` object carries `taskId` and `action`. `notification.created` carries `taskId` for task alerts, and the notification API returns it too. Opening an outreach alert goes to the department queue; opening a task alert goes to `/tasks/{taskId}`.
 
-`sound` is `raise`, `reply`, or `status`.
+`sound` is `raise`, `reply`, or `status`. Task frames always use `status`.
 
 Example, the frame that makes a sound:
 
@@ -62,14 +65,14 @@ Sentences are built on the server, using the shapes in [product.md](product.md).
 
 ## Who hears it
 
-Recipients of a ticket event are the requester, the assignee, ticket watchers, and the target department’s queue recipients, excluding the actor. An outreach goes only to that department’s queue recipients.
+Recipients of a ticket event are the requester, the assignee, ticket watchers, and the target department’s queue recipients, excluding the actor. An outreach goes only to that department’s queue recipients. Recipients of a task event are the task assignee, the assigner, step assignees and receiving heads, excluding the actor.
 
-`badges.updated` goes to anyone whose inbox, queue, or alert count changed, and to every admin when any company-wide monitor count changes. The actor’s own monitor counts still update. The actor does not get a notification frame for their own outreach.
+`badges.updated` goes to anyone whose inbox, queue, task, or alert count changed, and to every admin when any company-wide monitor count changes. The actor’s own counts still update. The actor does not get a notification frame for their own action.
 
-| Event | `ticket.*` frame | `notification.created` |
+| Event | `ticket.*` or `task.*` frame | `notification.created` |
 | --- | --- | --- |
-| Someone else acted | Yes, if this socket’s user may read the ticket | Yes |
-| You just acted | Yes, on your open ticket, so the screen stays in step | No |
+| Someone else acted | Yes, if this socket’s user may read the work | Yes |
+| You just acted | Yes, on your open ticket or task, so the screen stays in step | No |
 
 Queue recipients who are not otherwise allowed to read the ticket still receive the notification. Opening it is allowed, because being copied means they can read it. The read rule in the product doc includes members of the target department, and queue recipients are members of that department.
 
@@ -83,4 +86,4 @@ The rest of the rules live in the design system: after a first tap or keypress, 
 
 Not a v1 route. Documented so a later serverless host does not invent a second event model.
 
-`GET /api/v1/notifications/stream` would send the same JSON objects, one per SSE `data:` line, with the session cookie. The client would still refetch on reconnect. `ticket.*` frames and `notification.created` stay as they are. Do not add this route while the desk runs as one Node process with `/ws`.
+`GET /api/v1/notifications/stream` would send the same JSON objects, one per SSE `data:` line, with the session cookie. The client would still refetch on reconnect. `ticket.*`, `task.*` and `notification.created` frames stay as they are. Do not add this route while the desk runs as one Node process with `/ws`.

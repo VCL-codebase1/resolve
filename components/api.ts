@@ -81,10 +81,143 @@ export type TicketEvent = {
 
 export type TicketDetail = Ticket & { messages: Message[]; watchers: Person[]; events: TicketEvent[] };
 
+export type TaskStatus = "assigned" | "in_progress" | "blocked" | "in_review" | "changes_requested" | "completed" | "cancelled";
+export type TaskStepStatus = "assigned" | "in_progress" | "blocked" | "completed" | "cancelled";
+export type TaskPriority = "low" | "medium" | "high" | "urgent";
+
+export type TaskResource = {
+  id: string;
+  taskId: string;
+  uploader: Person;
+  type: "link" | "file";
+  title: string;
+  url: string | null;
+  fileName: string | null;
+  mediaType: string | null;
+  size: number | null;
+  createdAt: string;
+};
+
+export type TaskComment = {
+  id: string;
+  taskId: string;
+  author: Person;
+  body: string;
+  createdAt: string;
+};
+
+export type TaskActivity = {
+  id: string;
+  taskId: string;
+  actor: Person | null;
+  action: string;
+  message: string;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+};
+
+export type TaskStep = {
+  id: string;
+  taskId: string;
+  title: string;
+  description: string | null;
+  position: number;
+  required: boolean;
+  assignee: Person;
+  assignedBy: Person;
+  sourceDepartment: string | null;
+  targetDepartment: string | null;
+  targetLead: Person | null;
+  interdepartmental: boolean;
+  status: TaskStepStatus;
+  dueAt: string;
+  startedAt: string | null;
+  blockedAt: string | null;
+  blockedReason: string | null;
+  completedAt: string | null;
+  completionNote: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type Task = {
+  id: string;
+  name: string;
+  description: string;
+  expectedOutcome: string | null;
+  assignee: Person;
+  assignedBy: Person;
+  priority: TaskPriority;
+  status: TaskStatus;
+  startAt: string | null;
+  dueAt: string;
+  reminderOffsets: number[];
+  blockedReason: string | null;
+  submissionNote: string | null;
+  reviewComment: string | null;
+  startedAt: string | null;
+  blockedAt: string | null;
+  submittedAt: string | null;
+  approvedAt: string | null;
+  completedAt: string | null;
+  cancelledAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  overdue: boolean;
+};
+
+export type TaskDetail = Task & {
+  steps: TaskStep[];
+  resources: TaskResource[];
+  comments: TaskComment[];
+  activities: TaskActivity[];
+};
+
+export type TaskPage = { items: Task[]; nextCursor: string | null };
+
+export type TaskReport = {
+  range: { from: string; to: string; period: string; date: string };
+  scope: "mine" | "team" | "organization";
+  metrics: {
+    total: number;
+    assigned: number;
+    due: number;
+    completed: number;
+    completedOnTime: number;
+    overdue: number;
+    active: number;
+    blocked: number;
+    completionRate: number;
+    onTimeRate: number;
+    averageCompletionHours: number;
+  };
+  trend: { label: string; completed: number; created: number }[];
+  statusData: { status: TaskStatus; count: number }[];
+  people: {
+    id: string; name: string; department: string; total: number; assigned: number;
+    completed: number; onTime: number; overdue: number; hours: number;
+    onTimeRate: number; averageCompletionHours: number;
+  }[];
+  departments: {
+    slug: string; name: string; members: number; total: number; assigned: number;
+    completed: number; onTime: number; overdue: number; onTimeRate: number;
+  }[];
+  tasks: Task[];
+  delegatedSteps: TaskStep[];
+  delegationMetrics: {
+    total: number; interdepartmental: number; active: number; blocked: number; overdue: number;
+    completed: number; completionRate: number; onTimeRate: number;
+    averageResponseHours: number; averageCompletionHours: number; averageHours: number;
+  };
+};
+
+export type TaskReminderStatus = { ok: true; due: number; delivered: number; at: string };
+
 export type Badges = {
   inbox: number;
   queue: number;
   alerts: number;
+  tasks?: number;
   monitor?: { raised: number; pending: number; resolved: number; closed: number };
 };
 
@@ -94,6 +227,7 @@ export type Notice = {
   id: string;
   type: string;
   ticketId: string | null;
+  taskId?: string;
   departmentSlug?: string;
   sentence: string;
   sound: "raise" | "reply" | "status";
@@ -136,6 +270,45 @@ export function stageHint(status: string) {
   if (status === "waiting") return "The receiving team needs something before it can continue.";
   if (status === "resolved") return "Work completed. Reply if you need anything else.";
   return "This ticket is finished and locked.";
+}
+
+export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {
+  assigned: "Assigned",
+  in_progress: "In progress",
+  blocked: "Blocked",
+  in_review: "In review",
+  changes_requested: "Changes requested",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
+
+export const TASK_STEP_STATUS_LABEL: Record<TaskStepStatus, string> = {
+  assigned: "Assigned",
+  in_progress: "In progress",
+  blocked: "Blocked",
+  completed: "Completed",
+  cancelled: "Cancelled",
+};
+
+export const TASK_PRIORITY_LABEL: Record<TaskPriority, string> = {
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  urgent: "Urgent",
+};
+
+export function taskClosed(status: TaskStatus) {
+  return status === "completed" || status === "cancelled";
+}
+
+export function formatDateTime(iso: string | null) {
+  if (!iso) return "—";
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(iso));
 }
 
 export function relativeTime(iso: string) {

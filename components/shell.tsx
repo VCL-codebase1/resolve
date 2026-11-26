@@ -16,6 +16,7 @@ const navigationIcons: Record<string, string> = {
   "/queue": "M4 6h16M4 12h16M4 18h16",
   "/alerts": "M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M10 21h4",
   "/monitor": "M3 3v18h18M7 16v-4M12 16V8M17 16V5",
+  "/tasks": "M9 11l3 3L22 4M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11",
   "/directory": "M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M20 21v-2a4 4 0 0 0-3-3.87M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M17 3.13a4 4 0 0 1 0 7.75",
 };
 
@@ -106,6 +107,8 @@ function Chrome({ children }: { children: React.ReactNode }) {
           <NavLink href="/inbox" label="Inbox" count={badges.inbox} />
           <NavLink href="/queue" label="Queue" count={badges.queue} />
           <NavLink href="/alerts" label="Alerts" count={badges.alerts} alert />
+          <NavLink href="/tasks" label="Tasks" count={badges.tasks ?? 0} />
+          <NavLink href="/tasks/reports" label="Task reports" count={0} />
           {isAdmin ? <NavLink href="/monitor" label="Monitor" count={monitor} /> : null}
           {isAdmin ? <NavLink href="/directory" label="Directory" count={0} /> : null}
           {isLead ? <NavLink href="/directory" label="People" count={0} /> : null}
@@ -154,10 +157,11 @@ function Chrome({ children }: { children: React.ReactNode }) {
         </div>
       </div>
       <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-surface px-2 pt-1 pb-[env(safe-area-inset-bottom)] min-[880px]:hidden">
-        <div className={`grid h-16 ${isAdmin ? "grid-cols-5" : isLead ? "grid-cols-4" : "grid-cols-3"}`}>
+        <div className={`grid h-16 ${isAdmin ? "grid-cols-6" : isLead ? "grid-cols-5" : "grid-cols-4"}`}>
           <Tab href="/inbox" label="Inbox" count={badges.inbox} />
           <Tab href="/queue" label="Queue" count={badges.queue} />
           <Tab href="/alerts" label="Alerts" count={badges.alerts} alert />
+          <Tab href="/tasks" label="Tasks" count={badges.tasks ?? 0} />
           {isAdmin ? <Tab href="/monitor" label="Monitor" count={monitor} /> : null}
           {isAdmin ? <Tab href="/directory" label="Directory" count={0} /> : null}
           {isLead ? <Tab href="/directory" label="People" count={0} /> : null}
