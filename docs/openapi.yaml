@@ -332,7 +332,7 @@ paths:
         - $ref: "#/components/parameters/TicketId"
       responses:
         "200":
-          description: Ticket, messages, and watchers.
+          description: Ticket, messages, watchers, and stage events.
           content:
             application/json:
               schema:
@@ -384,6 +384,69 @@ paths:
                 $ref: "#/components/schemas/Error"
         "422":
           $ref: "#/components/responses/Validation"
+
+  /tickets/{id}/begin:
+    post:
+      tags: [Tickets]
+      summary: Begin work on a ticket
+      description: |
+        Any member of the target department, or an admin. Claims an
+        unassigned ticket for the caller and sets status to `in_progress`.
+        An assigned ticket may only be started by its assignee or a
+        lead/admin. Allowed from `open` or `waiting`.
+      operationId: beginTicket
+      parameters:
+        - $ref: "#/components/parameters/TicketId"
+      responses:
+        "200":
+          description: Updated ticket.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TicketDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The ticket is closed or work has already started.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /tickets/{id}/complete:
+    post:
+      tags: [Tickets]
+      summary: Mark a ticket completed
+      description: |
+        Assignee, lead of the target department, or admin. Sets status to
+        `resolved`. The requester can still reply to reopen it. Idempotent
+        on an already resolved ticket.
+      operationId: completeTicket
+      parameters:
+        - $ref: "#/components/parameters/TicketId"
+      responses:
+        "200":
+          description: Updated ticket.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TicketDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: The ticket is closed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /tickets/{id}/messages:
     post:
@@ -1389,7 +1452,7 @@ components:
       allOf:
         - $ref: "#/components/schemas/Ticket"
         - type: object
-          required: [messages, watchers]
+          required: [messages, watchers, events]
           properties:
             messages:
               type: array
@@ -1399,6 +1462,30 @@ components:
               type: array
               items:
                 $ref: "#/components/schemas/Person"
+            events:
+              type: array
+              items:
+                $ref: "#/components/schemas/TicketEvent"
+
+    TicketEvent:
+      type: object
+      required: [id, type, toStatus, actor, createdAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        type:
+          type: string
+          enum: [created, assigned, unassigned, started, waiting, resolved, reopened, closed, opened]
+        fromStatus:
+          type: [string, "null"]
+          enum: [open, in_progress, waiting, resolved, closed]
+        toStatus:
+          $ref: "#/components/schemas/Status"
+        actor:
+          $ref: "#/components/schemas/Person"
+        createdAt:
+          type: string
+          format: date-time
 
     Attachment:
       type: object

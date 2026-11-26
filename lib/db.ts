@@ -44,6 +44,7 @@ const migrations = [
   { version: 1, file: "schema.sql" },
   { version: 2, file: "migrations/002_sso.sql" },
   { version: 3, file: "migrations/003_sso_repair.sql" },
+  { version: 4, file: "migrations/004_ticket_events.sql" },
 ];
 
 async function migrate(db: Db) {

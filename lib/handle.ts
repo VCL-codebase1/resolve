@@ -204,6 +204,52 @@ function canManage(user: User, target: string) {
   return user.role === "admin" || (user.role === "lead" && user.departmentSlug === target);
 }
 
+function canReceive(user: User, target: string) {
+  return user.role === "admin" || user.departmentSlug === target;
+}
+
+async function recordEvent(input: {
+  ticketId: string;
+  type: string;
+  fromStatus?: Status | null;
+  toStatus: Status;
+  actorId: string;
+}) {
+  await q(
+    `INSERT INTO ticket_events (id, ticket_id, type, from_status, to_status, actor_id)
+     VALUES ($1,$2,$3,$4,$5,$6)`,
+    [randomUUID(), input.ticketId, input.type, input.fromStatus ?? null, input.toStatus, input.actorId],
+  );
+}
+
+function statusEventType(from: Status, to: Status) {
+  if (to === "in_progress") return "started";
+  if (to === "waiting") return "waiting";
+  if (to === "resolved") return "resolved";
+  if (to === "closed") return "closed";
+  if (to === "open") return from === "resolved" || from === "closed" ? "reopened" : "opened";
+  return "status";
+}
+
+async function eventsFor(ticketId: string, includeEmail: boolean) {
+  const rows = await q(
+    `SELECT e.id, e.type, e.from_status, e.to_status, e.created_at,
+            u.id AS actor_id, u.name AS actor_name, u.role AS actor_role,
+            u.department_slug AS actor_department, u.active AS actor_active, u.email AS actor_email
+     FROM ticket_events e JOIN users u ON u.id = e.actor_id
+     WHERE e.ticket_id = $1 ORDER BY e.created_at ASC, e.id ASC`,
+    [ticketId],
+  );
+  return rows.map((row) => ({
+    id: String(row.id),
+    type: String(row.type),
+    fromStatus: (row.from_status as Status | null) ?? null,
+    toStatus: row.to_status as Status,
+    actor: personFromAliases(row, "actor", includeEmail),
+    createdAt: iso(row.created_at),
+  }));
+}
+
 async function messagesFor(ticketId: string, includeEmail: boolean) {
   const rows = await q(
     `SELECT m.id, m.ticket_id, m.body, m.created_at,
@@ -265,6 +311,7 @@ async function detail(row: Record<string, unknown>, includeEmail: boolean) {
     ...mapTicket(row, includeEmail),
     messages: await messagesFor(id, includeEmail),
     watchers: await watcherPeople(id, includeEmail),
+    events: await eventsFor(id, includeEmail),
   };
 }
 
@@ -965,6 +1012,7 @@ export async function handle(method: string, path: string[], request: Request): 
         `SELECT (
            (SELECT count(*) FROM tickets WHERE requester_id = $1 OR assignee_id = $1) +
            (SELECT count(*) FROM messages WHERE author_id = $1) +
+           (SELECT count(*) FROM ticket_events WHERE actor_id = $1) +
            (SELECT count(*) FROM notifications WHERE actor_id = $1) +
            (SELECT count(*) FROM outreaches WHERE actor_id = $1)
          )::int AS n`,
@@ -1001,6 +1049,7 @@ export async function handle(method: string, path: string[], request: Request): 
           [id, title, priority, user.id, user.departmentSlug, body.targetDepartment],
         );
         await q(`INSERT INTO messages (id, ticket_id, author_id, body) VALUES ($1, $2, $3, $4)`, [messageId, id, user.id, note]);
+        await recordEvent({ ticketId: id, type: "created", toStatus: "open", actorId: user.id });
         return id;
       });
       const row = await ticketRow(ticketId);
@@ -1077,14 +1126,34 @@ export async function handle(method: string, path: string[], request: Request): 
         }
         status = body.status as Status;
       }
-      await q(
-        `UPDATE tickets SET status = $2, priority = $3, assignee_id = $4, updated_at = now() WHERE id = $1`,
-        [row.id, status, priority, assigneeId],
-      );
-      const next = await ticketRow(String(row.id));
-      if (!next) throw new HttpError(404, "not_found", "That ticket does not exist.");
       const assignedChanged = String(row.assignee_id ?? "") !== String(assigneeId ?? "");
       const statusChanged = row.status !== status;
+      await tx(async () => {
+        await q(
+          `UPDATE tickets SET status = $2, priority = $3, assignee_id = $4, updated_at = now() WHERE id = $1`,
+          [row.id, status, priority, assigneeId],
+        );
+        if (assignedChanged) {
+          await recordEvent({
+            ticketId: String(row.id),
+            type: assigneeId ? "assigned" : "unassigned",
+            fromStatus: row.status as Status,
+            toStatus: status,
+            actorId: user.id,
+          });
+        }
+        if (statusChanged) {
+          await recordEvent({
+            ticketId: String(row.id),
+            type: statusEventType(row.status as Status, status),
+            fromStatus: row.status as Status,
+            toStatus: status,
+            actorId: user.id,
+          });
+        }
+      });
+      const next = await ticketRow(String(row.id));
+      if (!next) throw new HttpError(404, "not_found", "That ticket does not exist.");
       if (assignedChanged) {
         const name = assigneeUser ? assigneeUser.name : "no one";
         const sentence = `${user.name} assigned ${row.id} to ${name}.`;
@@ -1140,6 +1209,99 @@ export async function handle(method: string, path: string[], request: Request): 
       return json(await detail(next, user.role === "admin"));
     }
 
+    // A receiver starts work. An unassigned ticket is claimed by the person
+    // who clicks Begin; an assigned ticket can only be started by its assignee
+    // or by a lead/admin of the receiving department.
+    if (method === "POST" && path[0] === "tickets" && path[2] === "begin" && path.length === 3) {
+      const user = await requireUser(request);
+      const row = await ticketRow(path[1]);
+      if (!row || !(await canRead(user, row))) throw new HttpError(404, "not_found", "That ticket does not exist.");
+      const target = String(row.target_department);
+      if (!canReceive(user, target)) throw new HttpError(403, "forbidden", "Only the receiving department can begin this ticket.");
+      if (row.status === "closed") return json({ error: { code: "conflict", message: "This ticket is closed." } }, 409);
+      if (row.status !== "open" && row.status !== "waiting") {
+        return json({ error: { code: "conflict", message: "Work on this ticket has already started." } }, 409);
+      }
+      if (row.assignee_id && row.assignee_id !== user.id && !canManage(user, target)) {
+        throw new HttpError(403, "forbidden", "Only the assignee can begin this ticket.");
+      }
+      const claiming = !row.assignee_id;
+      await tx(async () => {
+        await q(`UPDATE tickets SET assignee_id = $1, status = 'in_progress', updated_at = now() WHERE id = $2`, [user.id, row.id]);
+        if (claiming) {
+          await recordEvent({
+            ticketId: String(row.id),
+            type: "assigned",
+            fromStatus: row.status as Status,
+            toStatus: "in_progress",
+            actorId: user.id,
+          });
+        }
+        await recordEvent({
+          ticketId: String(row.id),
+          type: "started",
+          fromStatus: row.status as Status,
+          toStatus: "in_progress",
+          actorId: user.id,
+        });
+      });
+      const next = await ticketRow(String(row.id));
+      if (!next) throw new HttpError(404, "not_found", "That ticket does not exist.");
+      const sentence = claiming
+        ? `${user.name} picked up ${row.id} and started work.`
+        : `${user.name} started work on ${row.id}.`;
+      await notify({
+        recipients: await recipientIds(next, user.id),
+        readers: await readerIds(next),
+        actor: user,
+        type: "ticket.status_changed",
+        sound: "status",
+        sentence,
+        ticketId: String(row.id),
+        ticketEvent: { type: "ticket.status_changed", ticketId: String(row.id), status: "in_progress", stage: "started" },
+      });
+      await mailTicket(next, user, "ticket.status_changed", sentence, `${row.id} work started`, "Work started");
+      return json(await detail(next, user.role === "admin"));
+    }
+
+    // A receiver marks the work complete. The requester can still reply and
+    // reopen it; only a lead/admin can then close it.
+    if (method === "POST" && path[0] === "tickets" && path[2] === "complete" && path.length === 3) {
+      const user = await requireUser(request);
+      const row = await ticketRow(path[1]);
+      if (!row || !(await canRead(user, row))) throw new HttpError(404, "not_found", "That ticket does not exist.");
+      if (row.assignee_id !== user.id && !canManage(user, String(row.target_department))) {
+        throw new HttpError(403, "forbidden", "Only the assignee or a lead can complete this ticket.");
+      }
+      if (row.status === "closed") return json({ error: { code: "conflict", message: "This ticket is closed." } }, 409);
+      if (row.status === "resolved") return json(await detail(row, user.role === "admin"));
+      await tx(async () => {
+        await q(`UPDATE tickets SET status = 'resolved', updated_at = now() WHERE id = $1`, [row.id]);
+        await recordEvent({
+          ticketId: String(row.id),
+          type: "resolved",
+          fromStatus: row.status as Status,
+          toStatus: "resolved",
+          actorId: user.id,
+        });
+      });
+      const next = await ticketRow(String(row.id));
+      if (!next) throw new HttpError(404, "not_found", "That ticket does not exist.");
+      const sentence = `${user.name} completed ${row.id}.`;
+      await notify({
+        recipients: await recipientIds(next, user.id),
+        readers: await readerIds(next),
+        actor: user,
+        type: "ticket.status_changed",
+        sound: "status",
+        sentence,
+        ticketId: String(row.id),
+        ticketEvent: { type: "ticket.status_changed", ticketId: String(row.id), status: "resolved", stage: "completed" },
+      });
+      await mailTicket(next, user, "ticket.status_changed", sentence, `${row.id} completed`, "Completed");
+      return json(await detail(next, user.role === "admin"));
+    }
+
     if (method === "POST" && path[0] === "tickets" && path[2] === "messages" && path.length === 3) {
       const user = await requireUser(request);
       const row = await ticketRow(path[1]);
@@ -1153,6 +1315,15 @@ export async function handle(method: string, path: string[], request: Request): 
       await tx(async () => {
         await q(`INSERT INTO messages (id, ticket_id, author_id, body) VALUES ($1, $2, $3, $4)`, [messageId, row.id, user.id, note]);
         await q(`UPDATE tickets SET status = $2, updated_at = now() WHERE id = $1`, [row.id, nextStatus]);
+        if (nextStatus !== row.status) {
+          await recordEvent({
+            ticketId: String(row.id),
+            type: "reopened",
+            fromStatus: row.status as Status,
+            toStatus: nextStatus as Status,
+            actorId: user.id,
+          });
+        }
       });
       const next = await ticketRow(String(row.id));
       if (!next) throw new HttpError(404, "not_found", "That ticket does not exist.");

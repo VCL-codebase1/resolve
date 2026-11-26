@@ -28,8 +28,8 @@ A person has one home department. They may also watch other departments. Watchin
 
 | Role | Can |
 | --- | --- |
-| `member` | Raise a ticket, reply on tickets they raised, were assigned, or watch, and read their home queue |
-| `lead` | Everything a member can, plus assign, change status, and manage watchers on tickets aimed at their home department |
+| `member` | Raise a ticket, reply on tickets they raised, were assigned, or watch, read their home queue, and begin or complete tickets aimed at their home department |
+| `lead` | Everything a member can, plus assign, change any status, close, and manage watchers on tickets aimed at their home department |
 | `admin` | Everything a lead can, in every department, plus the monitor, create people, edit department receipt lists, and reach out to a department about unresolved tickets |
 
 Signing in uses a work email and a password. There is no public sign-up. An admin creates the account. The first version does not use Google or Microsoft sign-in. That can be added later without changing the ticket model.
@@ -56,9 +56,9 @@ A ticket is one request from a person to a department.
 Status meaning:
 
 - **Open.** Raised, not picked up.
-- **In progress.** Someone in the target department is on it. Setting this without an assignee is allowed. Assigning someone sets the status to `in_progress` if it was `open`.
+- **In progress.** Someone in the target department is on it. A receiver clicks **Begin work**, which claims an unassigned ticket and assigns it to them, then moves it here. Assigning someone also sets the status to `in_progress` if it was `open`.
 - **Waiting.** The target department needs something from the requester or from a third person. The thread should say what.
-- **Resolved.** The work is done. The requester can still reply. A reply on a resolved ticket sets it back to `open`.
+- **Resolved / completed.** The receiver clicks **Mark completed**. The requester can still reply. A reply sets it back to `open`.
 - **Closed.** Finished and locked. No new replies. Only a lead or admin can close, and only from `resolved`. Closing is not a delete. Nothing is deleted.
 
 Priority can change until the ticket is closed. The requester can set it at creation. After that, a lead or admin in the target department changes it.
@@ -70,7 +70,9 @@ Priority can change until the ticket is closed. The requester can set it at crea
 | Create | Any active person |
 | Read | Requester, assignee, watchers, members of the source or target department, admins |
 | Reply | Requester, assignee, watchers, members of the target department, admins. Not after `closed` |
-| Assign, status, priority | Lead of the target department, or admin |
+| Begin work (claim and in progress) | Any member of the target department, or admin |
+| Mark completed (resolve) | The assignee, a lead of the target department, or admin |
+| Assign, other status changes, priority, close | Lead of the target department, or admin |
 | Add or remove a watcher | Those same leads and admins, and the requester for themselves |
 | Close | Lead of the target department, or admin, from `resolved` only |
 | Monitor every ticket | Admin |
@@ -88,7 +90,7 @@ The design system defines how they look. This is what they contain. Every sectio
 
 **Queue.** The work aimed at your home department. Leads live here. Members can read it. A department you only watch does not appear as a queue. It appears in Alerts. Badge: unresolved tickets in the queue.
 
-**Ticket.** Title, meta line, status, priority, assignee, the thread, the reply field, and the receipt list for this ticket. Attachments sit under the note they belong to.
+**Ticket.** Title, meta line, status, priority, assignee, a stage-by-stage progress timeline, the thread, the reply field, and the receipt list for this ticket. The timeline shows who raised, claimed, started, completed, reopened or closed it, with times. Attachments sit under the note they belong to.
 
 **Alerts.** Notifications for this person, newest first. Each row opens the ticket, or the queue when the row is an admin outreach. Marking the screen as read clears the Alerts badge. It does not delete the rows. Badge: unread notifications.
 

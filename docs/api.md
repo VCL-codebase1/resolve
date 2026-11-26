@@ -70,11 +70,11 @@ The page is `{ items, nextCursor }`, newest activity first. `nextCursor` is null
 
 `POST /tickets` with `title` (1–120), `body` (1–8000), `targetDepartment`, and optional `priority` (`low`, `normal`, `high`, `urgent`; default `normal`).
 
-The server sets the requester and copies their home department onto the ticket as `sourceDepartment`. It creates the first message from `body`, writes notifications and a receipt for the target queue, and returns 201 with the ticket detail. The author is not notified.
+The server sets the requester and copies their home department onto the ticket as `sourceDepartment`. It creates the first message from `body`, records a `created` stage event, writes notifications and a receipt for the target queue, and returns 201 with the ticket detail. The author is not notified.
 
 ### Read and update
 
-`GET /tickets/{id}` returns the list fields plus `messages` and `watchers`. Readable by the requester, the assignee, a watcher, a member of either department on the ticket, or an admin. Otherwise 404.
+`GET /tickets/{id}` returns the list fields plus `messages`, `watchers`, and `events`. Each event has `id`, `type` (`created`, `assigned`, `unassigned`, `started`, `waiting`, `resolved`, `reopened`, `closed`, `opened`), `fromStatus`, `toStatus`, `actor`, and `createdAt`. Readable by the requester, the assignee, a watcher, a member of either department on the ticket, or an admin. Otherwise 404.
 
 `PATCH /tickets/{id}` changes `status`, `priority`, or `assigneeId`. At least one is required. Caller is a lead of the target department, or an admin.
 
@@ -82,6 +82,12 @@ The server sets the requester and copies their home department onto the ticket a
 - Assigning someone while the ticket is `open` also sets `in_progress`.
 - `closed` is allowed only from `resolved`. Anything else is 409.
 - This route does not reopen a ticket. A reply does.
+
+### Receiver actions
+
+`POST /tickets/{id}/begin` with no body. Available to any member of the target department, or an admin. An unassigned ticket is claimed by the caller; an assigned ticket may only be started by its assignee or a lead/admin. Allowed from `open` or `waiting`; sets `in_progress`, assigns the caller when unassigned, records `assigned` and `started` events, and notifies the thread.
+
+`POST /tickets/{id}/complete` with no body. Available to the assignee, a lead of the target department, or an admin. Allowed while the ticket is `open`, `in_progress`, or `waiting`; sets `resolved`, records a `resolved` event, and notifies the thread. It is idempotent on an already resolved ticket. The requester can still reply to reopen it; only a lead/admin can close it.
 
 ### Reply
 

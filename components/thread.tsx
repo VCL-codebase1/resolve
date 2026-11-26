@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
-import { api, relativeTime, said, STATUS_LABEL, type Department, type Person, type Receipt, type TicketDetail } from "./api";
+import { api, EVENT_LABEL, relativeTime, said, stageHint, STATUS_LABEL, type Department, type Person, type Receipt, type TicketDetail, type TicketEvent } from "./api";
 import { useDesk } from "./provider";
 import { PendingLabel, Spinner, SpinnerBlock } from "./spinner";
 
@@ -41,12 +41,40 @@ export function Thread({ id }: { id: string }) {
 
   const manage = me?.role === "admin" || (me?.role === "lead" && me.departmentSlug === ticket.targetDepartment);
   const closed = ticket.status === "closed";
+  const receives = Boolean(me && (me.role === "admin" || me.departmentSlug === ticket.targetDepartment));
+  const canBegin = Boolean(
+    me && receives && !closed && (ticket.status === "open" || ticket.status === "waiting") &&
+    (!ticket.assignee || ticket.assignee.id === me.id || manage),
+  );
+  const canComplete = Boolean(
+    me && !closed && (ticket.assignee?.id === me.id || manage) &&
+    (ticket.status === "open" || ticket.status === "in_progress" || ticket.status === "waiting"),
+  );
+  const eventLabel = (event: TicketEvent) =>
+    EVENT_LABEL[event.type] || STATUS_LABEL[event.toStatus as keyof typeof STATUS_LABEL] || event.type;
 
   async function patch(body: Record<string, unknown>, done: string) {
     setError("");
     setSaving(true);
     try {
       const next = await api<TicketDetail>(`/tickets/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+      setTicket(next);
+      refresh();
+      toast(done);
+    } catch (reason) {
+      const message = said(reason, "That change did not save.");
+      setError(message);
+      toast(message, "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function act(action: "begin" | "complete", done: string) {
+    setError("");
+    setSaving(true);
+    try {
+      const next = await api<TicketDetail>(`/tickets/${id}/${action}`, { method: "POST" });
       setTicket(next);
       refresh();
       toast(done);
@@ -102,6 +130,7 @@ export function Thread({ id }: { id: string }) {
             {label(departments, ticket.sourceDepartment)} → {label(departments, ticket.targetDepartment)}
           </span>
           <span>{STATUS_LABEL[ticket.status]}</span>
+          <span>{ticket.assignee ? `Assigned to ${ticket.assignee.name}` : "Unassigned"}</span>
         </p>
       </header>
       <div className="mx-auto max-w-[680px] px-4 py-6 min-[880px]:px-8">
@@ -109,6 +138,21 @@ export function Thread({ id }: { id: string }) {
         <p className={`mt-3 inline-flex rounded-md px-2 py-1 text-[13px] ${ticket.priority === "urgent" ? "bg-urgent-bg text-urgent" : "bg-waiting-bg text-waiting"}`}>
           {ticket.priority === "urgent" ? "Urgent" : "High"}
         </p>
+      ) : null}
+      {canBegin || canComplete ? (
+        <div className="mt-6 flex flex-col gap-2 min-[560px]:flex-row min-[560px]:flex-wrap min-[560px]:items-center">
+          {saving ? <Spinner className="size-4 text-action" label="Saving" /> : null}
+          {canBegin ? (
+            <button type="button" className="h-11 rounded-[10px] bg-action px-4 text-[14px] font-semibold text-white disabled:opacity-40" disabled={saving} onClick={() => void act("begin", "Work started.")}>
+              Begin work
+            </button>
+          ) : null}
+          {canComplete ? (
+            <button type="button" className="h-11 rounded-[10px] border border-action px-4 text-[14px] font-semibold text-action disabled:opacity-40" disabled={saving} onClick={() => void act("complete", "Ticket completed.")}>
+              Mark completed
+            </button>
+          ) : null}
+        </div>
       ) : null}
       {manage && !closed ? (
         <div className="mt-6 flex flex-col gap-2 min-[560px]:flex-row min-[560px]:flex-wrap min-[560px]:items-center">
@@ -154,6 +198,28 @@ export function Thread({ id }: { id: string }) {
           ) : null}
         </div>
       ) : null}
+      <section className="mt-8 rounded-[10px] border border-line p-4">
+        <h2 className="text-[14px] font-semibold">Progress</h2>
+        <p className="mt-1 text-[13px] text-ink-soft">{stageHint(ticket.status)}</p>
+        {(ticket.events ?? []).length === 0 ? (
+          <p className="mt-3 text-[13px] text-muted">No stage history recorded yet.</p>
+        ) : (
+          <ol className="mt-3 flex flex-col gap-2">
+            {ticket.events.map((event, index) => (
+              <li key={event.id} className="flex gap-3 text-[13px] text-ink-soft">
+                <span className={`mt-2 size-2 shrink-0 rounded-full ${index === ticket.events.length - 1 ? "bg-action" : "bg-line"}`} />
+                <span>
+                  <strong className="font-medium text-ink">{eventLabel(event)}</strong>
+                  {" · "}
+                  {event.actor?.name || "System"}
+                  {" · "}
+                  {relativeTime(event.createdAt)}
+                </span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </section>
       <div className="mt-8 flex flex-col gap-6">
         {ticket.messages.map((message) => (
           <section key={message.id}>

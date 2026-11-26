@@ -70,7 +70,16 @@ export type Message = {
   attachments: Attachment[];
 };
 
-export type TicketDetail = Ticket & { messages: Message[]; watchers: Person[] };
+export type TicketEvent = {
+  id: string;
+  type: string;
+  fromStatus: string | null;
+  toStatus: string;
+  actor: Person | null;
+  createdAt: string;
+};
+
+export type TicketDetail = Ticket & { messages: Message[]; watchers: Person[]; events: TicketEvent[] };
 
 export type Badges = {
   inbox: number;
@@ -109,6 +118,25 @@ export const STATUS_LABEL = {
   resolved: "Resolved",
   closed: "Closed",
 } as const;
+
+export const EVENT_LABEL: Record<string, string> = {
+  created: "Raised",
+  assigned: "Assigned",
+  unassigned: "Unassigned",
+  started: "Work started",
+  waiting: "Waiting on requester",
+  resolved: "Completed",
+  reopened: "Reopened",
+  closed: "Closed",
+};
+
+export function stageHint(status: string) {
+  if (status === "open") return "Waiting for the receiving team to begin work.";
+  if (status === "in_progress") return "The receiving team is working on this ticket.";
+  if (status === "waiting") return "The receiving team needs something before it can continue.";
+  if (status === "resolved") return "Work completed. Reply if you need anything else.";
+  return "This ticket is finished and locked.";
+}
 
 export function relativeTime(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();

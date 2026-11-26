@@ -60,15 +60,18 @@ Use Tunde (Sales) and Chioma (Exhibition lead).
 | 14 | Raise | New ticket → title, Exhibition, High, note → Raise | Ticket id `VC-…`, thread opens, Inbox badge can rise |
 | 15 | Receipt on raise | Ticket → receipts | One `ticket.raised` row. `sent` if SMTP works or is unset (log path). `failed` if SMTP is set but unreachable |
 | 16 | Queue for target | Chioma → Queue | New ticket visible for Exhibition |
-| 17 | Assign | Chioma assigns herself | Status becomes In progress; assign receipt appears |
+| 16a | Begin work | Exhibition member clicks Begin work on the unassigned ticket | Ticket is claimed by that person, status becomes In progress, timeline shows Assigned and Work started |
+| 17 | Assign | Chioma assigns herself to another open ticket | Status becomes In progress; assign receipt appears |
 | 18 | Notification sound | Second browser as Tunde with sound on, after one click on the page | Alert toast and a short tone when Chioma acts (mute turns sound off only) |
 | 19 | Reply | Chioma adds a note | Thread grows; `ticket.replied` receipt; Tunde gets an alert |
 | 20 | Attachment | On raise or reply, attach a small PNG | File listed on the note; opening it shows the image. With Cloudinary set, storage is remote; without it, `data/uploads` |
 | 21 | Waiting | Chioma sets Waiting | Status Waiting; status receipt |
 | 22 | Resolve | Chioma sets Resolved | Status Resolved |
-| 23 | Reopen by reply | Tunde replies on Resolved | Status returns to In progress |
+| 22a | Mark completed | Assignee clicks Mark completed on an in-progress ticket | Status Resolved, timeline shows Completed, issuer gets an alert |
+| 23 | Reopen by reply | Tunde replies on Resolved | Status returns to Open |
 | 24 | Close | Resolve again, then Close | Closed; reply and attach are refused |
 | 25 | Alerts | Open Alerts, open one, Mark all read | Badge drops; rows stay in history |
+| 25a | Progress timeline | Issuer opens the ticket | Timeline shows Raised, Assigned, Work started, Completed, Reopened and Closed in order with actors and times |
 
 ### Admin path
 
@@ -91,7 +94,7 @@ Use Tunde (Sales) and Chioma (Exhibition lead).
 | 35 | Log-only mail | Unset `SMTP_HOST`, raise a ticket | Server log line; receipt `sent` |
 | 36 | Real SMTP | Valid `SMTP_HOST` / user / pass / `EMAIL_FROM`, raise a ticket | Inbox receives Resolve-branded HTML; receipt `sent` |
 | 37 | Bad SMTP | `SMTP_HOST=smtp.example.com` | Receipt `failed`; ticket still saved |
-| 38 | Events that mail | Raise, reply, assign, status, outreach | Each writes a receipt for that event |
+| 38 | Events that mail | Raise, begin, reply, assign, status, complete, outreach | Each writes a receipt for that event |
 
 ### Realtime and chrome
 
@@ -116,7 +119,7 @@ curl -s -b /tmp/desk.txt -H 'content-type: application/json' \
   http://127.0.0.1:3000/api/v1/tickets
 ```
 
-Assign and status use `PATCH /api/v1/tickets/{id}`. Create person is `POST /api/v1/people`. Reset password is `PATCH /api/v1/people/{id}` with `password`. New department is `POST /api/v1/departments`.
+Assign and status use `PATCH /api/v1/tickets/{id}`. Receivers can also `POST /api/v1/tickets/{id}/begin` and `POST /api/v1/tickets/{id}/complete` with no body. Create person is `POST /api/v1/people`. Reset password is `PATCH /api/v1/people/{id}` with `password`. New department is `POST /api/v1/departments`.
 
 ## Last verified run
 

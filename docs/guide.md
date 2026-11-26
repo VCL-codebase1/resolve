@@ -36,9 +36,10 @@ Each department has a list of people who are copied on its email receipts. That 
 
 1. **Raise.** From New ticket, the person writes a title and a note, picks the department that should do the work, and sets a priority. Desk gives the ticket a number, `VC-1001` and up. The number never resets. The author’s home department is stored on the ticket, so a later move does not rewrite history.
 2. **Notify.** The requester, the assignee, the watchers, and the target department’s queue recipients are told, except the person who just acted. They get an in-app alert. If the desk is open, a short sound plays for that alert. An email receipt is queued for the same people.
-3. **Pick up.** The target department sees the ticket in Queue. A lead or an admin assigns someone in that department. Assigning an open ticket moves it to in progress.
+3. **Pick up.** The target department sees the ticket in Queue. A receiver clicks **Begin work**: an unassigned ticket is claimed by that person, and the status becomes in progress. A lead can still assign someone explicitly.
 4. **Reply.** Anyone who can read the ticket and is allowed to write adds a note. A file may ride along: PNG, JPEG, WEBP, or PDF, up to 10 MB, five files on a note. The type is checked from the file itself.
-5. **Resolve, then close.** The lead or admin marks the work resolved. A reply on a resolved ticket reopens it. Close is only available from resolved, and a closed ticket accepts no more replies or files. Nothing is deleted.
+5. **Complete, then close.** The assignee clicks **Mark completed**, which resolves the ticket. A reply on a completed ticket reopens it. Close is only available from resolved, and a closed ticket accepts no more replies or files. Nothing is deleted.
+6. **Track progress.** The person who raised the ticket sees a stage timeline on the ticket: raised, assigned, work started, waiting, completed, reopened and closed, with who acted and when.
 
 Statuses:
 
@@ -64,7 +65,7 @@ Who can do what is the short version of [product.md](product.md). Members raise 
 
 **Queue.** Everything aimed at your home department. Leads work from here. Members can read it. A department you only watch does not become a second queue. Those tickets show up in Alerts.
 
-**Ticket.** The title, the two departments, the status, the thread, the reply box, and the receipt list. Leads and admins also get assign, in progress, waiting, resolve, and close.
+**Ticket.** The title, the two departments, the status, the assignee, a progress timeline, the thread, the reply box, and the receipt list. Receivers get Begin work and Mark completed. Leads and admins also get assign, in progress, waiting, resolve, and close.
 
 **Alerts.** Live notices. Opening one marks it read and jumps to the ticket, or to the queue when the notice is an admin outreach. Mark all read clears the badge. It does not delete the rows.
 
