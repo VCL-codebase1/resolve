@@ -34,14 +34,16 @@ function globals() {
 
 function statements(sql: string) {
   return sql
+    .replace(/^\s*--.*$/gm, "")
     .split(/;\s*(?:\n|$)/)
     .map((part) => part.trim())
-    .filter((part) => part.length > 0 && !part.startsWith("--"));
+    .filter((part) => part.length > 0);
 }
 
 const migrations = [
   { version: 1, file: "schema.sql" },
   { version: 2, file: "migrations/002_sso.sql" },
+  { version: 3, file: "migrations/003_sso_repair.sql" },
 ];
 
 async function migrate(db: Db) {
@@ -55,7 +57,9 @@ async function migrate(db: Db) {
       const sql = readFileSync(join(root, migration.file), "utf8");
       for (const statement of statements(sql)) {
         // Complete databases created before version tracking, including interrupted setup.
-        const resumable = statement.replace(/^CREATE (TABLE|INDEX|SEQUENCE) /, "CREATE $1 IF NOT EXISTS ");
+        const resumable = /^CREATE (TABLE|INDEX|SEQUENCE) (?!IF NOT EXISTS )/.test(statement)
+          ? statement.replace(/^CREATE (TABLE|INDEX|SEQUENCE) /, "CREATE $1 IF NOT EXISTS ")
+          : statement;
         await db.query(resumable);
       }
       await db.query("INSERT INTO schema_migrations (version) VALUES ($1)", [migration.version]);
