@@ -1,9 +1,8 @@
 import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import nodemailer from "nodemailer";
 
-const dir = join(dirname(fileURLToPath(import.meta.url)), "..", "docs", "email");
+const dir = join(process.cwd(), "docs", "email");
 let htmlTemplate = "";
 let textTemplate = "";
 
@@ -101,13 +100,18 @@ function mailer() {
   if (!host) return null;
   const port = Number(process.env.SMTP_PORT || 587);
   const user = process.env.SMTP_USER || "";
-  const key = `${host}:${port}:${user}`;
+  const pass = process.env.SMTP_PASS || "";
+  const secure = process.env.SMTP_SECURE === "true" || port === 465;
+  const key = JSON.stringify([host, port, user, pass, secure]);
   if (!transporter || transporterKey !== key) {
     transporter = nodemailer.createTransport({
       host,
       port,
-      secure: process.env.SMTP_SECURE === "true" || port === 465,
-      auth: user ? { user, pass: process.env.SMTP_PASS || "" } : undefined,
+      secure,
+      auth: user ? { user, pass } : undefined,
+      connectionTimeout: 15000,
+      greetingTimeout: 15000,
+      socketTimeout: 30000,
     });
     transporterKey = key;
   }

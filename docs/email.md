@@ -16,7 +16,7 @@ The HTML is [email/ticket.html](email/ticket.html). The plain-text part is [emai
 | `SMTP_USER`, `SMTP_PASS` | Login, when the server asks for one. |
 | `EMAIL_FROM` | From address. Defaults to `Desk <desk@vethancon.com>`. |
 
-The receipt row is written as `queued` first. When Nodemailer accepts the message, or when `SMTP_HOST` is unset and the log line is written, the row becomes `sent` and `providerMessageId` is the id used in `Message-ID`. If `sendMail` throws, the row becomes `failed`. There is no automatic retry. `POST /webhooks/email` can still update a known id. Nodemailer does not call that route.
+The receipt row is written as `queued` first. When Nodemailer accepts the message, or when `SMTP_HOST` is unset and the log line is written, the row becomes `sent` and `providerMessageId` is the id used in `Message-ID`. Delivery runs in Next.js `after()` so the server finishes SMTP delivery and receipt updates after returning the ticket response. If `sendMail` throws, the row becomes `failed`. There is no automatic retry. `POST /webhooks/email` can still update a known id. Nodemailer does not call that route.
 
 ## When a receipt goes out
 

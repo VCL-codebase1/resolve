@@ -1,4 +1,5 @@
 import { createHmac, randomBytes, randomUUID } from "node:crypto";
+import { after } from "next/server";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -470,12 +471,15 @@ async function sendMail(input: Omit<MailInput, "providerMessageId" | "to" | "cc"
     [receiptId, input.ticketIdForRow, input.outreachId, input.event, to, cc],
   );
   const payload = { ...input, to, cc, providerMessageId: receiptId };
-  void deliver(payload)
-    .then((providerMessageId) => q(`UPDATE receipts SET state = 'sent', provider_message_id = $2 WHERE id = $1`, [receiptId, providerMessageId]))
-    .catch((error: unknown) => {
+  after(async () => {
+    try {
+      const providerMessageId = await deliver(payload);
+      await q(`UPDATE receipts SET state = 'sent', provider_message_id = $2 WHERE id = $1`, [receiptId, providerMessageId]);
+    } catch (error: unknown) {
       console.error(error);
-      return q(`UPDATE receipts SET state = 'failed' WHERE id = $1`, [receiptId]);
-    });
+      await q(`UPDATE receipts SET state = 'failed' WHERE id = $1`, [receiptId]);
+    }
+  });
   return receiptId;
 }
 

@@ -8,6 +8,19 @@ import { PendingLabel, Spinner, SpinnerBlock } from "./spinner";
 
 const label = (departments: Department[], slug: string) => departments.find((item) => item.slug === slug)?.name || slug;
 
+const receiptEvents: Record<string, string> = {
+  "ticket.raised": "Ticket raised",
+  "ticket.replied": "Reply added",
+  "ticket.assigned": "Assignment updated",
+  "ticket.status_changed": "Status updated",
+};
+
+const deliveryStates = {
+  queued: { label: "Sending", className: "bg-waiting-bg text-waiting" },
+  sent: { label: "Sent", className: "bg-resolved-bg text-resolved" },
+  failed: { label: "Not sent", className: "bg-urgent-bg text-danger" },
+};
+
 export function Thread({ id }: { id: string }) {
   const { live, departments, me, refresh, toast } = useDesk();
   const [ticket, setTicket] = useState<TicketDetail | null>(null);
@@ -35,6 +48,22 @@ export function Thread({ id }: { id: string }) {
       .then((body) => setReceipts(body.items))
       .catch(() => setReceipts([]));
   }, [id, live]);
+
+  useEffect(() => {
+    if (!receipts?.some((receipt) => receipt.state === "queued")) return;
+    let cancelled = false;
+    const timer = window.setInterval(() => {
+      api<{ items: Receipt[] }>(`/tickets/${id}/receipts`)
+        .then((body) => {
+          if (!cancelled) setReceipts(body.items);
+        })
+        .catch(() => {});
+    }, 2000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [id, receipts]);
 
   if (!ticket && error) return <p className="px-5 py-8 text-[16px] text-danger">{error}</p>;
   if (!ticket) return <SpinnerBlock label="Loading ticket" />;
@@ -255,15 +284,38 @@ export function Thread({ id }: { id: string }) {
       )}
       {error ? <p className="mt-4 text-[14px] text-danger">{error}</p> : null}
       <section className="mt-10 border-t border-line pt-4 pb-8">
-        <h2 className="text-[14px] font-semibold">Receipts</h2>
-        {receipts === null ? <div className="mt-3"><Spinner className="size-4 text-action" label="Loading receipts" /></div> : null}
-        {receipts && receipts.length === 0 ? <p className="mt-2 text-[13px] text-muted">No email has been sent yet.</p> : null}
-        <ul className="mt-2 flex flex-col gap-2">
-          {receipts?.map((receipt) => (
-            <li key={receipt.id} className="break-words font-mono text-[13px] text-ink-soft [overflow-wrap:anywhere]">
-              {receipt.state} · {[...receipt.to, ...receipt.cc].join(", ") || "no recipients"}
-            </li>
-          ))}
+        <h2 className="text-[16px] font-semibold">Email delivery</h2>
+        {receipts === null ? <div className="mt-3"><Spinner className="size-4 text-action" label="Loading email delivery" /></div> : null}
+        {receipts && receipts.length === 0 ? <p className="mt-2 text-[13px] text-muted">No email notifications yet.</p> : null}
+        <ul className="mt-3 space-y-3">
+          {receipts?.map((receipt) => {
+            const state = deliveryStates[receipt.state];
+            const recipients = [...new Set([...receipt.to, ...receipt.cc])];
+            return (
+              <li key={receipt.id} className="rounded-xl border border-line p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-medium">{receiptEvents[receipt.event] || "Ticket notification"}</p>
+                    <time dateTime={receipt.createdAt} className="mt-1 block text-xs text-muted">{relativeTime(receipt.createdAt)}</time>
+                  </div>
+                  <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${state.className}`}>{state.label}</span>
+                </div>
+                <details className="mt-3 text-sm">
+                  <summary className="cursor-pointer text-action">{recipients.length} {recipients.length === 1 ? "recipient" : "recipients"}</summary>
+                  <dl className="mt-3 space-y-3 break-words text-[13px] [overflow-wrap:anywhere]">
+                    {receipt.to.length > 0 ? <div>
+                      <dt className="font-medium text-muted">To</dt>
+                      <dd>{receipt.to.join(", ")}</dd>
+                    </div> : null}
+                    {receipt.cc.length > 0 ? <div>
+                      <dt className="font-medium text-muted">Cc</dt>
+                      <dd>{receipt.cc.join(", ")}</dd>
+                    </div> : null}
+                  </dl>
+                </details>
+              </li>
+            );
+          })}
         </ul>
       </section>
       </div>
