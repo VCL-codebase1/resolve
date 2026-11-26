@@ -1478,11 +1478,13 @@ components:
           enum: [created, assigned, unassigned, started, waiting, resolved, reopened, closed, opened]
         fromStatus:
           type: [string, "null"]
-          enum: [open, in_progress, waiting, resolved, closed]
+          enum: [open, in_progress, waiting, resolved, closed, null]
         toStatus:
           $ref: "#/components/schemas/Status"
         actor:
-          $ref: "#/components/schemas/Person"
+          oneOf:
+            - $ref: "#/components/schemas/Person"
+            - type: "null"
         createdAt:
           type: string
           format: date-time
