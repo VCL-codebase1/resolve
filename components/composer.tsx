@@ -115,7 +115,7 @@ const SSO_ERRORS: Record<string, string> = {
   "sso-expired": "That sign-in took too long. Try again.",
   "sso-failed": "We could not verify the vcglone sign-in. Try again.",
   "sso-inactive": "Your vcglone account is not active.",
-  "sso-no-account": "Your vcglone account has no Desk account. Ask a superadmin to add you.",
+  "sso-no-account": "We could not create your Desk account automatically. Ask a superadmin.",
   "sso-disabled": "Your Desk account is disabled. Ask a superadmin.",
   "sso-not-admin": "That account cannot sign in here. Use the staff sign-in.",
   "sso-use-admin": "Admins use the Superadmin sign-in.",

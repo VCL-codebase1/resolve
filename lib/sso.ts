@@ -1,6 +1,7 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { hashToken, userById, type User } from "./auth";
 import { q } from "./db";
+import { DEPARTMENT_NAMES, isSlug, type Role } from "./labels";
 
 export type SsoDoor = "staff" | "admin";
 
@@ -96,27 +97,66 @@ export async function consumeAssertion(jti: string, expiresAt: number) {
   if (!rows.length) throw new Error("Assertion already used");
 }
 
-export async function userFromAssertion(claims: Assertion): Promise<User | null> {
-  const bySubject = await q<{ id: string; sso_subject: string | null }>(
-    `SELECT id, sso_subject FROM users WHERE sso_subject = $1`,
-    [claims.sub],
-  );
-  let row = bySubject[0];
+function deskRole(vcgloneRole: string): Role {
+  if (vcgloneRole === "MANAGER") return "lead";
+  if (vcgloneRole === "HR_ADMIN" || vcgloneRole === "SUPER_ADMIN") return "admin";
+  return "member";
+}
 
-  if (!row) {
-    const byEmail = await q<{ id: string; sso_subject: string | null }>(
-      `SELECT id, sso_subject FROM users WHERE lower(email) = lower($1)`,
-      [claims.email],
+function defaultDepartment() {
+  const slug = process.env.SSO_DEFAULT_DEPARTMENT || "it-software";
+  if (!isSlug(slug)) throw new Error("SSO_DEFAULT_DEPARTMENT is not a valid department");
+  return slug;
+}
+
+async function syncUser(id: string, claims: Assertion) {
+  await q(
+    `UPDATE users
+     SET name = $1, role = $2, sso_subject = COALESCE(sso_subject, $3), identity_provider = 'vcglone'
+     WHERE id = $4`,
+    [claims.name, deskRole(claims.role), claims.sub, id],
+  );
+  const taken = await q(`SELECT 1 FROM users WHERE lower(email) = lower($1) AND id <> $2`, [claims.email, id]);
+  if (!taken.length) await q(`UPDATE users SET email = $1 WHERE id = $2`, [claims.email, id]);
+}
+
+export async function userFromAssertion(claims: Assertion): Promise<User | null> {
+  const bySubject = await q<{ id: string }>(`SELECT id FROM users WHERE sso_subject = $1`, [claims.sub]);
+  let id = bySubject[0]?.id;
+
+  if (!id) {
+    const byEmail = await q<{ id: string }>(`SELECT id FROM users WHERE lower(email) = lower($1)`, [claims.email]);
+    id = byEmail[0]?.id;
+  }
+
+  if (!id) {
+    const slug = defaultDepartment();
+    // A fresh database has no queues yet; make the default one usable on first login.
+    await q(`INSERT INTO departments (slug, name, position) VALUES ($1, $2, 0) ON CONFLICT DO NOTHING`, [
+      slug,
+      DEPARTMENT_NAMES[slug],
+    ]);
+    const created = await q<{ id: string }>(
+      `INSERT INTO users (id, email, name, role, department_slug, active, sso_subject, identity_provider)
+       VALUES ($1,$2,$3,$4,$5,true,$6,'vcglone')
+       ON CONFLICT (email) DO NOTHING
+       RETURNING id`,
+      [randomUUID(), claims.email, claims.name, deskRole(claims.role), slug, claims.sub],
     );
-    row = byEmail[0];
-    if (row && !row.sso_subject) {
-      await q(`UPDATE users SET sso_subject = $1, identity_provider = 'vcglone' WHERE id = $2 AND sso_subject IS NULL`, [
-        claims.sub,
-        row.id,
-      ]);
+    id = created[0]?.id;
+    if (!id) {
+      const race = await q<{ id: string }>(`SELECT id FROM users WHERE lower(email) = lower($1)`, [claims.email]);
+      id = race[0]?.id;
     }
   }
 
-  if (!row) return null;
-  return userById(String(row.id));
+  if (!id) return null;
+  await syncUser(String(id), claims);
+  await q(
+    `INSERT INTO department_recipients (department_slug, user_id)
+     SELECT department_slug, $1 FROM users WHERE id = $1
+     ON CONFLICT DO NOTHING`,
+    [id],
+  );
+  return userById(String(id));
 }
