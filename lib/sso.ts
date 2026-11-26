@@ -1,7 +1,7 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 import { hashToken, userById, type User } from "./auth";
 import { q } from "./db";
-import { DEPARTMENT_NAMES, isSlug, type Role } from "./labels";
+import { DEPARTMENT_NAMES, isSlug, type DepartmentSlug, type Role } from "./labels";
 
 export type SsoDoor = "staff" | "admin";
 
@@ -13,6 +13,7 @@ export type Assertion = {
   name: string;
   role: string;
   departmentId: string | null;
+  departmentName?: string | null;
   employmentStatus: string;
   iat: number;
   exp: number;
@@ -103,21 +104,82 @@ function deskRole(vcgloneRole: string): Role {
   return "member";
 }
 
-function defaultDepartment() {
+// vcglone department names -> Desk queue slugs. Names are normalized before lookup.
+const VCGLONE_DEPARTMENT_MAP: Record<string, DepartmentSlug> = {
+  "account-finance-admin": "account-finance",
+  "business-development-training-centre": "business-development",
+  "creative-marketing": "creative-marketing",
+  "etcon-labs-team": "it-software",
+  "exhibition-team": "exhibition",
+  "human-resource": "hr-admin",
+  "it-department": "it-software",
+  logistics: "logistic-warehouse",
+  "operations-team": "business-operations",
+  "procument-and-customer-service": "creative-marketing",
+  "sales-and-biz-development": "sales",
+  "technical-sales": "sales",
+};
+
+function normalizeDepartmentName(name: string) {
+  return name
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function departmentOverrides(): Record<string, DepartmentSlug> {
+  try {
+    const parsed = JSON.parse(process.env.SSO_DEPARTMENT_MAP || "{}") as Record<string, string>;
+    const result: Record<string, DepartmentSlug> = {};
+    for (const [name, value] of Object.entries(parsed)) {
+      if (isSlug(value)) result[normalizeDepartmentName(name)] = value;
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
+
+function fallbackDepartment(): DepartmentSlug {
   const slug = process.env.SSO_DEFAULT_DEPARTMENT || "it-software";
-  if (!isSlug(slug)) throw new Error("SSO_DEFAULT_DEPARTMENT is not a valid department");
-  return slug;
+  return isSlug(slug) ? slug : "it-software";
+}
+
+function deskDepartment(claims: Assertion): DepartmentSlug {
+  const name = claims.departmentName;
+  if (name) {
+    const key = normalizeDepartmentName(name);
+    const mapped = departmentOverrides()[key] ?? VCGLONE_DEPARTMENT_MAP[key] ?? (isSlug(key) ? key : undefined);
+    if (mapped) return mapped;
+  }
+  return fallbackDepartment();
+}
+
+async function ensureDepartment(slug: DepartmentSlug) {
+  await q(`INSERT INTO departments (slug, name, position) VALUES ($1, $2, 0) ON CONFLICT DO NOTHING`, [
+    slug,
+    DEPARTMENT_NAMES[slug],
+  ]);
 }
 
 async function syncUser(id: string, claims: Assertion) {
+  const slug = deskDepartment(claims);
+  await ensureDepartment(slug);
+  const current = await q<{ department_slug: string }>(`SELECT department_slug FROM users WHERE id = $1`, [id]);
+  const previous = current[0]?.department_slug;
   await q(
     `UPDATE users
-     SET name = $1, role = $2, sso_subject = COALESCE(sso_subject, $3), identity_provider = 'vcglone'
-     WHERE id = $4`,
-    [claims.name, deskRole(claims.role), claims.sub, id],
+     SET name = $1, role = $2, department_slug = $3, sso_subject = COALESCE(sso_subject, $4), identity_provider = 'vcglone'
+     WHERE id = $5`,
+    [claims.name, deskRole(claims.role), slug, claims.sub, id],
   );
   const taken = await q(`SELECT 1 FROM users WHERE lower(email) = lower($1) AND id <> $2`, [claims.email, id]);
   if (!taken.length) await q(`UPDATE users SET email = $1 WHERE id = $2`, [claims.email, id]);
+  if (previous && previous !== slug) {
+    await q(`DELETE FROM department_recipients WHERE user_id = $1 AND department_slug = $2`, [id, previous]);
+    await q(`INSERT INTO department_recipients (department_slug, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [slug, id]);
+  }
 }
 
 export async function userFromAssertion(claims: Assertion): Promise<User | null> {
@@ -130,12 +192,9 @@ export async function userFromAssertion(claims: Assertion): Promise<User | null>
   }
 
   if (!id) {
-    const slug = defaultDepartment();
-    // A fresh database has no queues yet; make the default one usable on first login.
-    await q(`INSERT INTO departments (slug, name, position) VALUES ($1, $2, 0) ON CONFLICT DO NOTHING`, [
-      slug,
-      DEPARTMENT_NAMES[slug],
-    ]);
+    const slug = deskDepartment(claims);
+    // A fresh database has no queues yet; make the mapped queue usable on first login.
+    await ensureDepartment(slug);
     const created = await q<{ id: string }>(
       `INSERT INTO users (id, email, name, role, department_slug, active, sso_subject, identity_provider)
        VALUES ($1,$2,$3,$4,$5,true,$6,'vcglone')
